@@ -1,8 +1,33 @@
 import { createClient } from '@/lib/supabase/server'
+import type { Client } from '@/types/database'
 
 export default async function TestPage() {
   const supabase = await createClient()
-  const { data: clients, error } = await supabase.from('clients').select('*')
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return (
+      <main className="p-8">
+        <h1 className="text-xl font-bold mb-4">Supabase Connection Test</h1>
+        <p className="text-sm text-muted-foreground">
+          Not signed in —{' '}
+          <a href="/login" className="underline text-foreground">
+            sign in
+          </a>{' '}
+          to test the authenticated connection.
+        </p>
+      </main>
+    )
+  }
+
+  const { data: clientsData, error } = await supabase
+    .from('clients')
+    .select('*')
+
+  const clients = clientsData as Client[] | null
 
   if (error) {
     return (
@@ -11,11 +36,6 @@ export default async function TestPage() {
         <div className="rounded bg-red-50 border border-red-200 p-4 text-red-700">
           <p className="font-semibold">Error fetching clients:</p>
           <pre className="mt-2 text-sm whitespace-pre-wrap">{error.message}</pre>
-          {!process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith('https') && (
-            <p className="mt-3 text-sm">
-              Hint: Make sure you&apos;ve set real values in <code>.env.local</code>.
-            </p>
-          )}
         </div>
       </main>
     )
@@ -24,14 +44,17 @@ export default async function TestPage() {
   return (
     <main className="p-8">
       <h1 className="text-xl font-bold mb-4">Supabase Connection Test</h1>
-      <p className="mb-4 text-green-700 font-medium">
-        ✓ Connected — {clients?.length ?? 0} client(s) found
+      <p className="mb-1 text-green-700 font-medium">
+        ✓ Connected as {user.email}
+      </p>
+      <p className="mb-4 text-sm text-muted-foreground">
+        {clients?.length ?? 0} client(s) visible under your RLS policy
       </p>
       {clients && clients.length > 0 ? (
         <ul className="space-y-2">
-          {clients.map((client: Record<string, unknown>) => (
+          {clients.map((client) => (
             <li
-              key={String(client.id)}
+              key={client.id}
               className="rounded border p-3 text-sm font-mono"
             >
               <pre>{JSON.stringify(client, null, 2)}</pre>
@@ -39,8 +62,8 @@ export default async function TestPage() {
           ))}
         </ul>
       ) : (
-        <p className="text-gray-500 text-sm">
-          No rows in the clients table yet — but the connection works.
+        <p className="text-muted-foreground text-sm">
+          No rows visible — check your RLS policies or add some clients.
         </p>
       )}
     </main>
