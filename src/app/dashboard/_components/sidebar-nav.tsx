@@ -3,22 +3,24 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
-  Phone,
-  MessageSquare,
-  CalendarDays,
-  Users,
+  Inbox,
+  UserPlus,
+  CalendarCheck,
+  PhoneMissed,
+  AlertCircle,
+  BarChart2,
   Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { label: 'Overview',     href: '/dashboard',              icon: LayoutDashboard, disabled: false, preservesClient: false },
-  { label: 'Calls',        href: '/dashboard/calls',        icon: Phone,           disabled: false, preservesClient: true  },
-  { label: 'Messages',     href: '/dashboard/messages',     icon: MessageSquare,   disabled: false, preservesClient: true  },
-  { label: 'Appointments', href: '/dashboard/appointments', icon: CalendarDays,    disabled: false, preservesClient: true  },
-  { label: 'Contacts',     href: '/dashboard/contacts',     icon: Users,           disabled: true,  preservesClient: false },
-  { label: 'Settings',     href: '/dashboard/settings',     icon: Settings,        disabled: false, preservesClient: true  },
+  { label: 'Inbox',        href: '/dashboard/inbox',     icon: Inbox,         disabled: false, preservesClient: true  },
+  { label: 'New Leads',    href: '/dashboard/leads',     icon: UserPlus,      disabled: false, preservesClient: true  },
+  { label: 'Booked',       href: '/dashboard/booked',    icon: CalendarCheck, disabled: false, preservesClient: true  },
+  { label: 'Missed Calls', href: '/dashboard/missed',    icon: PhoneMissed,   disabled: false, preservesClient: true  },
+  { label: 'Needs Review', href: '/dashboard/review',    icon: AlertCircle,   disabled: false, preservesClient: true  },
+  { label: 'Analytics',   href: '/dashboard/analytics', icon: BarChart2,     disabled: false, preservesClient: true  },
+  { label: 'Settings',     href: '/dashboard/settings',  icon: Settings,      disabled: false, preservesClient: true  },
 ]
 
 interface SidebarNavProps {
@@ -44,7 +46,7 @@ export function SidebarNav({ clientId }: SidebarNavProps) {
           return (
             <div
               key={href}
-              className="flex cursor-not-allowed select-none items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground/40"
+              className="flex cursor-not-allowed select-none items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-600"
             >
               <Icon className="size-4 shrink-0" />
               <span>{label}</span>
@@ -62,8 +64,8 @@ export function SidebarNav({ clientId }: SidebarNavProps) {
                 : undefined
             }
             className={cn(
-              'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-              !isActive && 'hover:bg-muted'
+              'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors text-slate-300',
+              !isActive && 'hover:bg-[#1e2d45] hover:text-white'
             )}
           >
             <Icon className="size-4 shrink-0" />

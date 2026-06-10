@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { Menu as MenuIcon, X } from 'lucide-react'
+import { Menu as MenuIcon, X, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SidebarNav } from './sidebar-nav'
 import { UserMenu } from './user-menu'
@@ -18,6 +18,12 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/appointments': 'Appointments',
   '/dashboard/contacts':     'Contacts',
   '/dashboard/settings':     'Settings',
+  '/dashboard/inbox':        'Inbox',
+  '/dashboard/leads':        'New Leads',
+  '/dashboard/booked':       'Booked',
+  '/dashboard/missed':       'Missed Calls',
+  '/dashboard/review':       'Needs Review',
+  '/dashboard/analytics':    'Analytics',
 }
 
 interface DashboardShellProps {
@@ -75,22 +81,25 @@ export function DashboardShell({
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-64 flex-col',
-          'border-r border-border bg-card',
+          'border-r border-[#1e2d45] bg-[#0f1623]',
           'transition-transform duration-200 ease-in-out',
           'md:static md:translate-x-0 md:transition-none',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Logo / branding */}
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-[#1e2d45] px-4">
           {logoUrl ? (
-            <img src={logoUrl} alt={displayName} className="h-7 max-w-[160px] object-contain" />
+            <img src={logoUrl} alt={displayName} className="h-7 max-w-[140px] object-contain" />
           ) : (
-            <span className="truncate text-sm font-semibold">{displayName}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles className="size-4 shrink-0 text-blue-400" />
+              <span className="truncate text-sm font-semibold text-white">{displayName}</span>
+            </div>
           )}
           <button
             type="button"
-            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors md:hidden"
+            className="rounded-md p-1 text-slate-400 hover:bg-[#1e2d45] hover:text-white transition-colors md:hidden"
             onClick={() => setSidebarOpen(false)}
             aria-label="Close sidebar"
           >
@@ -100,8 +109,16 @@ export function DashboardShell({
 
         <SidebarNav clientId={effectiveClientId} />
 
-        <div className="shrink-0 border-t border-border px-4 py-3">
-          <p className="text-xs text-muted-foreground">
+        {/* AI activity card */}
+        <div className="mx-3 mb-3 shrink-0 rounded-lg bg-[#1a2740] border border-[#1e3a5f] px-3 py-2.5">
+          <p className="text-xs font-medium text-slate-200">AI handled 12 calls today</p>
+          <a href="/dashboard/analytics" className="mt-0.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            View Activity →
+          </a>
+        </div>
+
+        <div className="shrink-0 border-t border-[#1e2d45] px-4 py-3">
+          <p className="text-xs text-slate-500">
             {profile.role === 'agency' ? 'Agency View' : 'Client View'}
           </p>
         </div>
