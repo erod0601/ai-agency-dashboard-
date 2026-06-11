@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useClientContext } from "@/lib/client-context";
 import { createClient } from "@/lib/supabase/client";
 import {
   Phone,
@@ -420,8 +420,8 @@ function ContactSkeleton() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ContactsPage() {
-  const searchParams = useSearchParams();
-  const clientId = searchParams.get("client_id");
+  const { activeClient } = useClientContext();
+  const clientId = activeClient?.id ?? null;
   const supabase = createClient();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -436,16 +436,18 @@ export default function ContactsPage() {
 
   // ── Fetch contacts ──────────────────────────────────────────────────────────
   const fetchContacts = useCallback(async () => {
+    // Wait for ClientProvider to resolve the active client — never query
+    // unfiltered across all clients
+    if (!clientId) return;
     setLoading(true);
-    let q = supabase
+    const q = supabase
       .from("contacts_enriched")
       .select("*")
       .order(sortBy === "calls" ? "call_count" : sortBy === "name" ? "full_name" : "last_seen_at", {
         ascending: sortBy === "name",
         nullsFirst: false,
-      });
-
-    if (clientId) q = q.eq("client_id", clientId);
+      })
+      .eq("client_id", clientId);
 
     const { data, error } = await q.limit(200);
     if (!error && data) {

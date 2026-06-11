@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useClientContext } from "@/lib/client-context";
 import {
   Select,
@@ -12,18 +11,15 @@ import {
 
 export function ClientSwitcher() {
   const { clients, activeClient, setActiveClient } = useClientContext();
-  const router = useRouter();
 
   return (
     <Select
       value={activeClient?.id ?? ""}
       onValueChange={(id) => {
         const found = clients.find((c) => c.id === id);
-        if (found) {
-          setActiveClient(found);
-          // Update the URL so the server page re-fetches metrics for the new client
-          router.push(`?client_id=${id}`);
-        }
+        // setActiveClient writes the activeClientId cookie and refreshes,
+        // so server pages re-fetch for the new client
+        if (found) setActiveClient(found);
       }}
     >
       <SelectTrigger className="w-48">

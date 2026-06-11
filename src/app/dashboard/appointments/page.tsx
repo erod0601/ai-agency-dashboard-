@@ -1,29 +1,16 @@
 import { redirect } from 'next/navigation'
-import { getCurrentUser, getProfile, getAllClients, getAppointmentsForPage } from '@/lib/queries'
+import { getCurrentUser, getProfile, getAppointmentsForPage } from '@/lib/queries'
+import { resolveActiveClient } from '@/lib/active-client'
 import { AppointmentsPanel } from './_components/AppointmentsPanel'
 
-export default async function AppointmentsPage(props: {
-  searchParams: Promise<{ client_id?: string }>
-}) {
-  const searchParams = await props.searchParams
-
+export default async function AppointmentsPage() {
   const user = await getCurrentUser()
   if (!user) redirect('/login')
 
   const profile = await getProfile(user.id)
   if (!profile) redirect('/login')
 
-  let clientId: string | null = null
-
-  if (profile.role === 'agency') {
-    const clients = await getAllClients()
-    const requested = searchParams.client_id
-    const match = requested ? clients.find(c => c.id === requested) : null
-    const resolved = match ?? clients[0] ?? null
-    clientId = resolved?.id ?? null
-  } else {
-    clientId = profile.client_id
-  }
+  const { clientId } = await resolveActiveClient(profile)
 
   if (!clientId) {
     return (

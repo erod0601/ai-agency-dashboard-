@@ -9,7 +9,7 @@ import { UserMenu } from './user-menu'
 import { useClientContext } from '@/lib/client-context'
 import { ClientSwitcher } from './client-switcher'
 import { ThemeToggle } from '@/components/theme-toggle'
-import type { Profile, Client, ClientSettings } from '@/types/database'
+import type { Profile, ClientSettings } from '@/types/database'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard':              'Overview',
@@ -29,7 +29,6 @@ const PAGE_TITLES: Record<string, string> = {
 interface DashboardShellProps {
   profile: Profile
   userEmail: string
-  clients: Client[]          // server-fetched; used as fallback before context loads
   clientSettings: ClientSettings | null
   children: React.ReactNode
 }
@@ -37,7 +36,6 @@ interface DashboardShellProps {
 export function DashboardShell({
   profile,
   userEmail,
-  clients,
   clientSettings,
   children,
 }: DashboardShellProps) {
@@ -46,11 +44,6 @@ export function DashboardShell({
   const pageTitle = PAGE_TITLES[pathname] ?? 'Dashboard'
 
   const { activeClient } = useClientContext()
-
-  // Server-fetched defaults are available on render 1 (no async).
-  // Context activeClient takes over once the Supabase fetch in ClientProvider resolves.
-  const serverDefaultClientId = profile.client_id ?? clients[0]?.id ?? null
-  const effectiveClientId = activeClient?.id ?? serverDefaultClientId
 
   // Brand color: prefer context activeClient (includes per-client primary_color),
   // fall back to server-fetched clientSettings (for client-role users), then neutral default
@@ -107,7 +100,7 @@ export function DashboardShell({
           </button>
         </div>
 
-        <SidebarNav clientId={effectiveClientId} />
+        <SidebarNav />
 
         {/* AI activity card */}
         <div className="mx-3 mb-3 shrink-0 rounded-lg bg-[#1a2740] border border-[#1e3a5f] px-3 py-2.5">

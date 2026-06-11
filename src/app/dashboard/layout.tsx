@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
-import { getCurrentUser, getProfile, getAllClients, getClientSettings } from '@/lib/queries'
+import { getCurrentUser, getProfile, getClientSettings } from '@/lib/queries'
 import { ClientProvider } from '@/lib/client-context'
 import { DashboardShell } from './_components/dashboard-shell'
 import { BrandingApplier } from './_components/branding-applier'
-import type { Client, ClientSettings } from '@/types/database'
+import type { ClientSettings } from '@/types/database'
 
 export default async function DashboardLayout({
   children,
@@ -16,12 +16,9 @@ export default async function DashboardLayout({
   const profile = await getProfile(user.id)
   if (!profile) redirect('/login')
 
-  let clients: Client[] = []
   let clientSettings: ClientSettings | null = null
 
-  if (profile.role === 'agency') {
-    clients = await getAllClients()
-  } else if (profile.client_id) {
+  if (profile.role !== 'agency' && profile.client_id) {
     clientSettings = await getClientSettings(profile.client_id)
   }
 
@@ -31,7 +28,6 @@ export default async function DashboardLayout({
       <DashboardShell
         profile={profile}
         userEmail={user.email ?? ''}
-        clients={clients}
         clientSettings={clientSettings}
       >
         {children}

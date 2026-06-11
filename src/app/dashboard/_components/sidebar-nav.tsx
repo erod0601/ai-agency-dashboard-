@@ -14,32 +14,23 @@ import {
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { label: 'Inbox',        href: '/dashboard/inbox',     icon: Inbox,         disabled: false, preservesClient: true  },
-  { label: 'New Leads',    href: '/dashboard/leads',     icon: UserPlus,      disabled: false, preservesClient: true  },
-  { label: 'Booked',       href: '/dashboard/booked',    icon: CalendarCheck, disabled: false, preservesClient: true  },
-  { label: 'Missed Calls', href: '/dashboard/missed',    icon: PhoneMissed,   disabled: false, preservesClient: true  },
-  { label: 'Needs Review', href: '/dashboard/review',    icon: AlertCircle,   disabled: false, preservesClient: true  },
-  { label: 'Analytics',   href: '/dashboard/analytics', icon: BarChart2,     disabled: false, preservesClient: true  },
-  { label: 'Settings',     href: '/dashboard/settings',  icon: Settings,      disabled: false, preservesClient: true  },
+  { label: 'Inbox',        href: '/dashboard/inbox',     icon: Inbox,         disabled: false },
+  { label: 'New Leads',    href: '/dashboard/leads',     icon: UserPlus,      disabled: false },
+  { label: 'Booked',       href: '/dashboard/booked',    icon: CalendarCheck, disabled: false },
+  { label: 'Missed Calls', href: '/dashboard/missed',    icon: PhoneMissed,   disabled: false },
+  { label: 'Needs Review', href: '/dashboard/review',    icon: AlertCircle,   disabled: false },
+  { label: 'Analytics',   href: '/dashboard/analytics', icon: BarChart2,     disabled: false },
+  { label: 'Settings',     href: '/dashboard/settings',  icon: Settings,      disabled: false },
 ]
 
-interface SidebarNavProps {
-  // Resolved client ID from DashboardShell — available from render 1 via server-fetched
-  // props, updated when the context activeClient changes. Avoids relying on async context.
-  clientId: string | null
-}
-
-export function SidebarNav({ clientId }: SidebarNavProps) {
+// The active client travels via the activeClientId cookie (see lib/active-client.ts),
+// so nav links no longer need to carry a ?client_id= param.
+export function SidebarNav() {
   const pathname = usePathname()
-
-  function buildHref(href: string, preservesClient: boolean): string {
-    if (preservesClient && clientId) return `${href}?client_id=${clientId}`
-    return href
-  }
 
   return (
     <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-      {NAV_ITEMS.map(({ label, href, icon: Icon, disabled, preservesClient }) => {
+      {NAV_ITEMS.map(({ label, href, icon: Icon, disabled }) => {
         const isActive = pathname === href || pathname.startsWith(href + '/')
 
         if (disabled) {
@@ -57,7 +48,7 @@ export function SidebarNav({ clientId }: SidebarNavProps) {
         return (
           <Link
             key={href}
-            href={buildHref(href, preservesClient)}
+            href={href}
             style={
               isActive
                 ? { backgroundColor: 'var(--brand-color)', color: '#fff' }
