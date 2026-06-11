@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Palette, Bot, Bell, Plug } from 'lucide-react'
+import { Building2, Palette, Bot, Bell, Plug, KeyRound } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -34,7 +34,7 @@ const CRM_PROVIDERS = [
   { value: 'custom',       label: 'Custom' },
 ]
 
-type SettingsTab = 'business' | 'branding' | 'ai' | 'notifications' | 'crm'
+type SettingsTab = 'business' | 'branding' | 'ai' | 'notifications' | 'crm' | 'integrations'
 
 const ALL_TABS: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'business',      label: 'Business Info',     icon: Building2 },
@@ -42,6 +42,7 @@ const ALL_TABS: { id: SettingsTab; label: string; icon: React.ElementType }[] = 
   { id: 'ai',            label: 'AI Configuration',  icon: Bot       },
   { id: 'notifications', label: 'Notifications',     icon: Bell      },
   { id: 'crm',           label: 'CRM Integration',   icon: Plug      },
+  { id: 'integrations',  label: 'Integrations',      icon: KeyRound  },
 ]
 
 const CLIENT_OWNER_TABS: SettingsTab[] = ['business', 'branding', 'notifications']
@@ -227,6 +228,14 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
   const [crmExternalId, setCrmExternalId] = useState(String(crmConfig.external_id ?? ''))
   const [webhookUrl, setWebhookUrl]       = useState(String(crmConfig.webhook_url ?? ''))
 
+  // Integrations (agency only) — API keys/config for Retell, Twilio, n8n.
+  // Stored in client_settings.crm_config; live calls stay stubbed until the
+  // integration layer (src/lib/integrations) is wired up post-compliance.
+  const [retellApiKey, setRetellApiKey]         = useState(String(crmConfig.retell_api_key ?? ''))
+  const [twilioAccountSid, setTwilioAccountSid] = useState(String(crmConfig.twilio_account_sid ?? ''))
+  const [twilioAuthToken, setTwilioAuthToken]   = useState(String(crmConfig.twilio_auth_token ?? ''))
+  const [n8nWebhookBase, setN8nWebhookBase]     = useState(String(crmConfig.n8n_webhook_base_url ?? ''))
+
   // Tracks full crm_config in memory so saves across sections don't clobber each other.
   const [currentCrmConfig, setCurrentCrmConfig] = useState<Record<string, unknown>>(crmConfig)
 
@@ -321,6 +330,24 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
     if (!error) setCurrentCrmConfig(newCrmConfig)
     setSaving(false)
     showToast(error ? error.message : 'CRM settings saved.', error ? 'error' : 'success')
+  }
+
+  async function saveIntegrations() {
+    setSaving(true)
+    const supabase = createClient()
+    const newCrmConfig: Record<string, unknown> = {
+      ...currentCrmConfig,
+      retell_api_key: retellApiKey || null,
+      twilio_account_sid: twilioAccountSid || null,
+      twilio_auth_token: twilioAuthToken || null,
+      n8n_webhook_base_url: n8nWebhookBase || null,
+    }
+    const { error } = await supabase
+      .from('client_settings')
+      .upsert({ client_id: clientId, crm_config: newCrmConfig })
+    if (!error) setCurrentCrmConfig(newCrmConfig)
+    setSaving(false)
+    showToast(error ? error.message : 'Integration settings saved.', error ? 'error' : 'success')
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -555,6 +582,48 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
                   placeholder="https://hooks.example.com/webhook"
                 />
               )}
+            </Section>
+          )}
+
+          {activeTab === 'integrations' && (
+            <Section
+              title="Integrations"
+              description="API credentials for the voice, SMS, and automation providers powering this client."
+              onSave={saveIntegrations}
+              saving={saving}
+            >
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                Credentials are stored for setup purposes only. Outbound texting and calling stay
+                disabled until the integration layer is wired up and the compliance review is complete.
+              </div>
+
+              <TextInput
+                label="Retell API Key"
+                value={retellApiKey}
+                onChange={setRetellApiKey}
+                type="password"
+                placeholder="key_xxxxxxxxxxxxxxxx"
+              />
+              <TextInput
+                label="Twilio Account SID"
+                value={twilioAccountSid}
+                onChange={setTwilioAccountSid}
+                placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              />
+              <TextInput
+                label="Twilio Auth Token"
+                value={twilioAuthToken}
+                onChange={setTwilioAuthToken}
+                type="password"
+                placeholder="••••••••••••••••"
+              />
+              <TextInput
+                label="n8n Webhook Base URL"
+                value={n8nWebhookBase}
+                onChange={setN8nWebhookBase}
+                type="url"
+                placeholder="https://n8n.example.com/webhook"
+              />
             </Section>
           )}
 
