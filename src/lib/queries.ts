@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import type { Profile, Client, ClientSettings, DailyCallMetric, RecentCall, CallOutcome, ServiceCount, MessageThread, Appointment } from '@/types/database'
+import type { Profile, Client, ClientSettings, DailyCallMetric, RecentCall, CallOutcome, ServiceCount, MessageThread, Appointment, Lead, LeadCall } from '@/types/database'
 
 // React.cache deduplicates calls with identical args within a single server render pass,
 // so layout.tsx and page.tsx can call the same helpers without double-querying Supabase.
@@ -310,6 +310,40 @@ export const getCallsForPage = cache(async (clientId: string): Promise<RecentCal
     .order('started_at', { ascending: false })
   if (fbErr) console.error('[getCallsForPage:view fallback]', fbErr.message)
   return (fallback as RecentCall[] | null) ?? []
+})
+
+// ── Leads page ────────────────────────────────────────────────────────────────
+
+// A lead is a contact with at least one call but no appointment yet.
+// contacts_enriched view columns: contacts.* + call_count + appointment_count.
+export const getLeadsForPage = cache(async (clientId: string, limit = 200): Promise<Lead[]> => {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('contacts_enriched')
+    .select('id, client_id, phone, email, full_name, source, first_seen_at, last_seen_at, metadata, call_count, appointment_count')
+    .eq('client_id', clientId)
+    .gt('call_count', 0)
+    .eq('appointment_count', 0)
+    .order('last_seen_at', { ascending: false, nullsFirst: false })
+    .limit(limit)
+  if (error) console.error('[getLeadsForPage] client_id=%s error=%s', clientId, error.message)
+  else console.log('[getLeadsForPage] client_id=%s rows=%d', clientId, data?.length ?? 0)
+  return (data as Lead[] | null) ?? []
+})
+
+// All calls for a set of contacts, newest first — powers the lead activity feed
+// and per-lead AI summary (latest call's summary field).
+export const getCallsForContacts = cache(async (clientId: string, contactIds: string[]): Promise<LeadCall[]> => {
+  if (contactIds.length === 0) return []
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('calls')
+    .select('id, contact_id, started_at, duration_seconds, outcome, intent, sentiment, after_hours, summary, recording_url')
+    .eq('client_id', clientId)
+    .in('contact_id', contactIds)
+    .order('started_at', { ascending: false })
+  if (error) console.error('[getCallsForContacts] client_id=%s error=%s', clientId, error.message)
+  return (data as LeadCall[] | null) ?? []
 })
 
 // ── Messages ──────────────────────────────────────────────────────────────────

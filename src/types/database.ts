@@ -93,6 +93,38 @@ export interface Appointment {
   bookedVia: string
 }
 
+// ── Leads ────────────────────────────────────────────────────────────────────
+
+// Matches contacts_enriched view (contacts columns + call_count/appointment_count).
+// A "lead" is a contact with call_count > 0 and appointment_count = 0.
+export interface Lead {
+  id: string
+  client_id: string
+  phone: string | null
+  email: string | null
+  full_name: string | null
+  source: string | null
+  first_seen_at: string | null
+  last_seen_at: string | null
+  metadata: Record<string, unknown> | null
+  call_count: number
+  appointment_count: number
+}
+
+// Subset of calls columns used in the lead activity feed
+export interface LeadCall {
+  id: string
+  contact_id: string | null
+  started_at: string
+  duration_seconds: number | null
+  outcome: string | null
+  intent: string | null
+  sentiment: string | null
+  after_hours: boolean | null
+  summary: string | null
+  recording_url: string | null
+}
+
 // ── Messages ─────────────────────────────────────────────────────────────────
 
 // Matches message_threads view
