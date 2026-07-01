@@ -112,15 +112,17 @@ export function deriveLeadStatus(
   // cancelled / no_show appointments are dead ends, not a reason to treat a
   // contact who booked-then-cancelled as brand new. (After rules 1–2 return,
   // this is always false, but it keeps the intent explicit.)
+  // `booked` and `confirmed` are the same tier in this schema — see
+  // BookedPanel, which already treats them as equivalent "active" appointments.
   const hasLiveAppointment = appts.some(
-    (a) => a.status === 'confirmed' || a.status === 'completed',
+    (a) => a.status === 'confirmed' || a.status === 'booked' || a.status === 'completed',
   )
 
   // 1. Any completed appointment → won.
   if (appts.some((a) => a.status === 'completed')) return 'won'
 
-  // 2. Any confirmed appointment → booked.
-  if (appts.some((a) => a.status === 'confirmed')) return 'booked'
+  // 2. Any confirmed/booked appointment → booked.
+  if (appts.some((a) => a.status === 'confirmed' || a.status === 'booked')) return 'booked'
 
   // 3. Dormant gap that has since re-engaged → reactivated.
   //    The most recent call is recent AND the gap before it exceeds the

@@ -12,8 +12,12 @@
 // job value in Settings. Kept honest, not aspirational.
 export const DEFAULT_AVG_TICKET = 350
 
-// Appointment statuses that count toward revenue. `cancelled` / `no_show` never do.
-const REVENUE_STATUSES = new Set(['confirmed', 'completed'])
+// Appointment statuses that count toward pipeline (booked but not yet done).
+// `booked` and `confirmed` are the same tier in this schema — see BookedPanel,
+// which already treats them as equivalent "active" appointments.
+const PIPELINE_STATUSES = new Set(['booked', 'confirmed'])
+// Statuses that count toward revenue at all. `cancelled` / `no_show` never do.
+const REVENUE_STATUSES = new Set(['booked', 'confirmed', 'completed'])
 
 // Minimal shapes so these helpers stay decoupled from the full DB row types.
 export interface RevenueSettings {
@@ -31,7 +35,7 @@ export interface RevenueAppointment {
 export interface RevenueBreakdown {
   // Dollars from `completed` appointments (money that has been earned).
   realized: number
-  // Dollars from `confirmed` appointments (money booked but not yet earned).
+  // Dollars from `booked` / `confirmed` appointments (money booked but not yet earned).
   pipeline: number
 }
 
@@ -75,7 +79,7 @@ export function estimateContactRevenue(
     if (!REVENUE_STATUSES.has(status)) continue
     const value = appointmentValue(appt, safeAvg)
     if (status === 'completed') realized += value
-    else pipeline += value
+    else if (PIPELINE_STATUSES.has(status)) pipeline += value
   }
 
   return { realized, pipeline }
