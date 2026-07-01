@@ -93,6 +93,41 @@ function TextInput({
   )
 }
 
+function DollarInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+          $
+        </span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="1"
+          value={value}
+          // Keep only digits and a single decimal point so the stored value
+          // stays a clean number.
+          onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
+          placeholder={placeholder}
+          className="w-full rounded-md border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
+        />
+      </div>
+    </div>
+  )
+}
+
 function Toggle({
   checked,
   onChange,
@@ -466,12 +501,11 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
               </div>
 
               {isAgency && (
-                <TextInput
-                  label="Avg ticket value ($)"
+                <DollarInput
+                  label="Average job value — used to estimate recovered revenue. Ask each client for their real number."
                   value={avgTicket}
                   onChange={setAvgTicket}
-                  placeholder="150"
-                  type="number"
+                  placeholder="350"
                 />
               )}
             </Section>
