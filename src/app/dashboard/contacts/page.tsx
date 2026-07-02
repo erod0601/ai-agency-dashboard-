@@ -76,6 +76,8 @@ interface ContactAppointment {
 interface ContactDetail extends Contact {
   calls: ContactCall[];
   appointments: ContactAppointment[];
+  // not yet a real column — populated only if the API adds it later
+  tags?: string[] | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -582,7 +584,7 @@ export default function ContactsPage() {
           )}
         </div>
 
-        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+        <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v ?? "all")}>
           <SelectTrigger className="h-8 w-28 text-xs">
             <Filter className="w-3 h-3 mr-1.5" />
             <SelectValue />
@@ -595,7 +597,7 @@ export default function ContactsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={sortBy} onValueChange={setSortBy}>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v ?? "last_seen_at")}>
           <SelectTrigger className="h-8 w-32 text-xs">
             <SelectValue />
           </SelectTrigger>

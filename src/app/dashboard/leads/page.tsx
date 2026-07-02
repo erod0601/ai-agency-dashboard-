@@ -10,7 +10,7 @@ export default async function LeadsPage() {
   const profile = await getProfile(user.id)
   if (!profile) redirect('/login')
 
-  const { clientId } = await resolveActiveClient(profile)
+  const { clientId, client } = await resolveActiveClient(profile)
 
   if (!clientId) {
     return (
@@ -23,5 +23,5 @@ export default async function LeadsPage() {
   const leads = await getLeadsForPage(clientId)
   const calls = await getCallsForContacts(clientId, leads.map(l => l.id))
 
-  return <LeadsPanel leads={leads} calls={calls} clientId={clientId} />
+  return <LeadsPanel leads={leads} calls={calls} businessType={client?.business_type ?? undefined} />
 }
