@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Building2, Palette, Bot, Bell, Plug, KeyRound } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { DEFAULT_AVG_TICKET } from '@/lib/revenue'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -89,6 +90,42 @@ function TextInput({
         placeholder={placeholder}
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
       />
+    </div>
+  )
+}
+
+// Dollar-formatted variant of TextInput: $ adornment, digits-only sanitizing,
+// optional hint line for guidance copy.
+function MoneyInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hint,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  hint?: string
+}) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+          $
+        </span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
+          placeholder={placeholder}
+          className="w-full rounded-md border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
+        />
+      </div>
+      {hint && <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   )
 }
@@ -466,12 +503,12 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
               </div>
 
               {isAgency && (
-                <TextInput
-                  label="Avg ticket value ($)"
+                <MoneyInput
+                  label="Average job value"
                   value={avgTicket}
                   onChange={setAvgTicket}
-                  placeholder="150"
-                  type="number"
+                  placeholder={String(DEFAULT_AVG_TICKET)}
+                  hint="Used to estimate recovered revenue. Ask each client for their real number."
                 />
               )}
             </Section>
