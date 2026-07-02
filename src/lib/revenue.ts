@@ -31,7 +31,7 @@ export interface RevenueEstimate {
 // Minimal shape so helpers accept both full Appointment rows and lighter
 // query results (e.g. a select of just status/estimated_value/scheduled_at).
 export type RevenueAppointment = Pick<Appointment, 'status' | 'estimated_value'> &
-  Partial<Pick<Appointment, 'scheduled_at' | 'contact_id'>>
+  Partial<Pick<Appointment, 'scheduled_at' | 'created_at' | 'contact_id'>>
 
 /** The client's average ticket value, falling back to the placeholder default. */
 export function getAvgTicket(
@@ -87,24 +87,23 @@ export function estimateContactRevenue(
 }
 
 /**
- * Client-wide revenue over the trailing 30 days.
- * - realized: completed appointments whose scheduled_at falls in the window.
- * - pipeline: confirmed appointments from the window start onward — upcoming
- *   confirmed bookings ARE the pipeline, so they get no upper bound.
- * Appointments without a scheduled_at are skipped (can't be windowed honestly).
+ * Client-wide revenue over the trailing 30 days — "what did the AI book this
+ * month". Windowed on created_at (when the booking entered the system),
+ * falling back to scheduled_at, so a confirmed appointment scheduled for a
+ * future date still counts toward pipeline. Appointments without either
+ * timestamp are skipped (can't be windowed honestly).
  */
 export function estimateClientRevenue30d(
   appointments: RevenueAppointment[],
   avgTicket: number,
   now: Date = new Date()
 ): RevenueEstimate {
-  const nowMs = now.getTime()
-  const windowStart = nowMs - REVENUE_WINDOW_DAYS * DAY_MS
+  const windowStart = now.getTime() - REVENUE_WINDOW_DAYS * DAY_MS
   const windowed = appointments.filter(a => {
-    if (!a.scheduled_at) return false
-    const t = new Date(a.scheduled_at).getTime()
-    if (!Number.isFinite(t) || t < windowStart) return false
-    return (a.status != null && PIPELINE_STATUSES.has(a.status)) || t <= nowMs
+    const stamp = a.created_at ?? a.scheduled_at
+    if (!stamp) return false
+    const t = new Date(stamp).getTime()
+    return Number.isFinite(t) && t >= windowStart
   })
   return sumRevenue(windowed, avgTicket)
 }
