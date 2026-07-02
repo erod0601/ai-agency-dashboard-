@@ -11,6 +11,8 @@ import {
   getAvgTicket,
   estimateContactRevenue,
   estimateClientRevenue30d,
+  estimateCumulativeRevenue,
+  computeAnswerRateStreak,
   formatRevenueLabel,
   type RevenueAppointment,
 } from '../src/lib/revenue'
@@ -120,6 +122,39 @@ if (!Number.isFinite(guards.realized) || !Number.isFinite(guards.pipeline)) thro
 if (guards.realized < 0 || guards.pipeline < 0) throw new Error('negative leaked')
 if (guards.realized !== 900 || guards.pipeline !== 450) throw new Error('guard math wrong')
 console.log('labels:', formatRevenueLabel(1234), '|', formatRevenueLabel(1234, true))
+
+// ── 2b. Cumulative + answer-rate streak (hero band tiles 2 and 3) ────────────
+const cumulative = estimateCumulativeRevenue([
+  { status: 'completed', estimated_value: 500,  created_at: iso(10) },  // in window
+  { status: 'completed', estimated_value: 300,  created_at: iso(80) },  // before baseline
+  { status: 'confirmed', estimated_value: 900,  created_at: iso(5) },   // pipeline ≠ cumulative
+  { status: 'completed', estimated_value: null, created_at: iso(20) },  // avg-ticket fallback
+], avgTicket, new Date(NOW.getTime() - 60 * DAY))
+console.log('\ncumulative (baseline 60d ago):', cumulative, '| expect 500+450=950')
+if (cumulative !== 950) throw new Error('cumulative mismatch')
+
+// Streak: month buckets relative to NOW (2026-07-02). Jun 10 answered/10;
+// May 9/10; Apr 5/10 (breaks); current month July has no calls → skipped.
+const mkCalls = (monthOffset: number, answered: number, unanswered: number) => {
+  const d = new Date(NOW.getFullYear(), NOW.getMonth() - monthOffset, 15)
+  const list: Array<{ started_at: string; outcome: string | null }> = []
+  for (let i = 0; i < answered; i++) list.push({ started_at: d.toISOString(), outcome: 'booked' })
+  for (let i = 0; i < unanswered; i++) list.push({ started_at: d.toISOString(), outcome: 'voicemail' })
+  return list
+}
+const streak = computeAnswerRateStreak(
+  [...mkCalls(1, 10, 0), ...mkCalls(2, 9, 1), ...mkCalls(3, 5, 5)], 0.9, NOW)
+console.log('streak (Jun 100%, May 90%, Apr 50%, Jul empty):', JSON.stringify(streak),
+  '| expect streakMonths=2, monthsOfData=3')
+if (streak.streakMonths !== 2 || streak.monthsOfData !== 3) throw new Error('streak mismatch')
+
+const freshStreak = computeAnswerRateStreak(mkCalls(0, 5, 0), 0.9, NOW)
+console.log('fresh client (current month only):', JSON.stringify(freshStreak), '| expect monthsOfData=1')
+if (freshStreak.monthsOfData !== 1 || freshStreak.latestRate !== 1) throw new Error('fresh streak mismatch')
+
+const noCalls = computeAnswerRateStreak([], 0.9, NOW)
+if (noCalls.streakMonths !== 0 || noCalls.latestRate !== null) throw new Error('empty streak mismatch')
+console.log('no calls at all:', JSON.stringify(noCalls))
 
 // ── 3. Edge-case fixtures for rules the live data never exercises ────────────
 console.log('\n── Edge-case fixtures ──')

@@ -248,6 +248,9 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
   const [displayName, setDisplayName] = useState(settings?.display_name ?? '')
   const [primaryColor, setPrimaryColor] = useState(settings?.primary_color ?? '#6366f1')
   const [avgTicket, setAvgTicket]     = useState(String(settings?.avg_ticket_value ?? ''))
+  // Frozen value-story baseline (YYYY-MM-DD for the date input); set once at
+  // onboarding. Empty → dashboards fall back to the client's start date.
+  const [baselineDate, setBaselineDate] = useState(settings?.baseline_locked_at?.slice(0, 10) ?? '')
 
   // AI Config
   const [retellAgentId, setRetellAgentId] = useState(String(crmConfig.retell_agent_id ?? ''))
@@ -308,7 +311,10 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
       display_name: displayName || null,
       primary_color: primaryColor || null,
     }
-    if (isAgency) payload.avg_ticket_value = avgTicket ? Number(avgTicket) : null
+    if (isAgency) {
+      payload.avg_ticket_value = avgTicket ? Number(avgTicket) : null
+      payload.baseline_locked_at = baselineDate ? new Date(baselineDate + 'T00:00:00').toISOString() : null
+    }
     const { error } = await supabase.from('client_settings').upsert(payload)
     setSaving(false)
     showToast(error ? error.message : 'Branding saved.', error ? 'error' : 'success')
@@ -503,13 +509,29 @@ export function SettingsPanel({ clientId, role, client, settings }: SettingsPane
               </div>
 
               {isAgency && (
-                <MoneyInput
-                  label="Average job value"
-                  value={avgTicket}
-                  onChange={setAvgTicket}
-                  placeholder={String(DEFAULT_AVG_TICKET)}
-                  hint="Used to estimate recovered revenue. Ask each client for their real number."
-                />
+                <>
+                  <MoneyInput
+                    label="Average job value"
+                    value={avgTicket}
+                    onChange={setAvgTicket}
+                    placeholder={String(DEFAULT_AVG_TICKET)}
+                    hint="Used to estimate recovered revenue. Ask each client for their real number."
+                  />
+                  <div>
+                    <FieldLabel>Baseline date</FieldLabel>
+                    <input
+                      type="date"
+                      value={baselineDate}
+                      onChange={e => setBaselineDate(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    />
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Locked reference point for &ldquo;since onboarding&rdquo; totals and the
+                      consistency streak. Set once when the client goes live — leave blank to use
+                      the client&apos;s start date.
+                    </p>
+                  </div>
+                </>
               )}
             </Section>
           )}

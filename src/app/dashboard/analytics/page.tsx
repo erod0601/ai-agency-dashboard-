@@ -8,7 +8,12 @@ import {
 } from '@/lib/queries'
 import { resolveActiveClient } from '@/lib/active-client'
 import { getIndustryConfig } from '@/lib/industry-config'
-import { getAvgTicket, estimateClientRevenue30d } from '@/lib/revenue'
+import {
+  getAvgTicket,
+  estimateClientRevenue30d,
+  estimateCumulativeRevenue,
+  computeAnswerRateStreak,
+} from '@/lib/revenue'
 import { deriveLeadStatus, type LeadStatus } from '@/lib/lead-status'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MetricCard } from '../_components/overview/metric-card'
@@ -128,6 +133,14 @@ export default async function AnalyticsPage() {
   const revenue30d = estimateClientRevenue30d(funnelInputs.appointments, avgTicket)
   const statusDistribution = computeStatusDistribution(funnelInputs)
 
+  // Value-story baseline: locked at onboarding, else the client's start date.
+  const baselineLocked = clientSettings?.baseline_locked_at != null
+  const baselineDate = new Date(
+    clientSettings?.baseline_locked_at ?? client?.created_at ?? Date.now()
+  )
+  const cumulative = estimateCumulativeRevenue(funnelInputs.appointments, avgTicket, baselineDate)
+  const streak = computeAnswerRateStreak(funnelInputs.calls)
+
   // ── Derive 30d vs prior-30d metrics from the 61-day daily_call_metrics ────
   const thirtyDaysAgoStr = (() => {
     const d = new Date()
@@ -171,9 +184,13 @@ export default async function AnalyticsPage() {
         </p>
       )}
 
-      {/* ── Row 1: Revenue hero band ────────────────────────────────────────── */}
+      {/* ── Row 1: Value-story hero band (three tiles) ──────────────────────── */}
       <RevenueHeroBand
         revenue={revenue30d}
+        cumulative={cumulative}
+        baselineDate={baselineDate}
+        baselineLocked={baselineLocked}
+        streak={streak}
         avgTicket={avgTicket}
         usingDefaultTicket={usingDefaultTicket}
       />

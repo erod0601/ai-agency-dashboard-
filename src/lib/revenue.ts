@@ -113,6 +113,93 @@ export function estimateClientRevenue30d(
   return sumRevenue(windowed, avgTicket)
 }
 
+/**
+ * Cumulative realized revenue since the client's value-story baseline —
+ * "total revenue recovered since onboarding". Only completed appointments
+ * count (pipeline is a This-Month concept), windowed from `baselineDate`
+ * (client_settings.baseline_locked_at, falling back to clients.created_at)
+ * with no upper bound and no reset — this number only ever goes up.
+ */
+export function estimateCumulativeRevenue(
+  appointments: RevenueAppointment[],
+  avgTicket: number,
+  baselineDate: Date
+): number {
+  const baselineMs = baselineDate.getTime()
+  let realized = 0
+  for (const a of appointments) {
+    if (a.status !== REALIZED_STATUS) continue
+    const stamp = a.created_at ?? a.scheduled_at
+    if (!stamp) continue
+    const t = new Date(stamp).getTime()
+    if (Number.isFinite(t) && t >= baselineMs) realized += appointmentValue(a, avgTicket)
+  }
+  return realized
+}
+
+// ── Answer-rate consistency streak ────────────────────────────────────────────
+// The third value-story tile: how many consecutive calendar months the AI has
+// kept the answer rate at or above the threshold. "Answered" means the call
+// connected — voicemail and hang-ups-before-answer don't count.
+
+export const ANSWER_RATE_THRESHOLD = 0.9
+
+const UNANSWERED_OUTCOMES = new Set(['voicemail', 'hung_up'])
+
+export interface AnswerRateStreak {
+  /** number of calendar months that have at least one call */
+  monthsOfData: number
+  /** answer rate of the most recent month with calls (0–1), null if no calls */
+  latestRate: number | null
+  /** consecutive months at/above threshold, counting back from the present */
+  streakMonths: number
+}
+
+export function computeAnswerRateStreak(
+  calls: Array<{ started_at: string; outcome: string | null }>,
+  threshold: number = ANSWER_RATE_THRESHOLD,
+  now: Date = new Date()
+): AnswerRateStreak {
+  const byMonth = new Map<string, { total: number; answered: number }>()
+  for (const c of calls) {
+    const d = new Date(c.started_at)
+    if (Number.isNaN(d.getTime())) continue
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const bucket = byMonth.get(key) ?? { total: 0, answered: 0 }
+    bucket.total++
+    if (!(c.outcome != null && UNANSWERED_OUTCOMES.has(c.outcome))) bucket.answered++
+    byMonth.set(key, bucket)
+  }
+
+  const monthsOfData = byMonth.size
+  const rateOf = (key: string) => {
+    const b = byMonth.get(key)
+    return b && b.total > 0 ? b.answered / b.total : null
+  }
+
+  // Walk backward month by month from the current one. The current (partial)
+  // month doesn't break the streak while it's still in progress — it only
+  // counts when it's already at/above threshold.
+  const cursor = new Date(now.getFullYear(), now.getMonth(), 1)
+  let streak = 0
+  let latestRate: number | null = null
+  for (let i = 0; i < 120 && streak < byMonth.size; i++) {
+    const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+    const rate = rateOf(key)
+    if (latestRate === null && rate !== null) latestRate = rate
+    if (rate !== null && rate >= threshold) {
+      streak++
+    } else if (i === 0) {
+      // current month missing or below threshold → still in progress, skip
+    } else {
+      break
+    }
+    cursor.setMonth(cursor.getMonth() - 1)
+  }
+
+  return { monthsOfData, latestRate, streakMonths: streak }
+}
+
 /** "$1,234" — shared money formatting so panels agree on presentation. */
 export function formatMoney(amount: number): string {
   return amount.toLocaleString('en-US', {

@@ -73,7 +73,7 @@ export const getClientSettingsFull = cache(async (clientId: string): Promise<Cli
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('client_settings')
-    .select('client_id, primary_color, logo_url, display_name, avg_ticket_value, crm_provider, crm_config')
+    .select('client_id, primary_color, logo_url, display_name, avg_ticket_value, baseline_locked_at, crm_provider, crm_config')
     .eq('client_id', clientId)
     .single()
   if (error) console.error('[getClientSettingsFull]', error.message)

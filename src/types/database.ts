@@ -22,6 +22,9 @@ export interface ClientSettings {
   logo_url: string | null
   display_name: string | null
   avg_ticket_value: number | null
+  // Frozen value-story baseline, set once at onboarding. Null → fall back to
+  // clients.created_at.
+  baseline_locked_at: string | null
   crm_provider: string | null
   crm_config: Record<string, unknown> | null
 }
