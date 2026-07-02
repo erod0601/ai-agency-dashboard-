@@ -215,15 +215,18 @@ console.log('no calls at all:', JSON.stringify(noCalls))
   const ahEmpty = computeAfterHoursStats([], 30, NOW)
   if (ahEmpty.answeredAfterHours !== 0 || ahEmpty.pctOfTotal !== 0) throw new Error('empty after-hours mismatch')
 
-  // Reactivation value: avg-ticket fallback for appointment-less contacts,
-  // real appointment dollars when they exist
+  // Reactivation value is forward-looking ONLY: avgTicket per appointment-less
+  // contact. A contact with real appointment revenue (possible only via the
+  // status override) contributes $0 — those dollars already live in the
+  // revenue tiles, and counting them here would double-count.
   const reactValue = computeReactivationValue(
     ['r1', 'r2', 'r3'],
     [{ status: 'confirmed', estimated_value: 800, contact_id: 'r3' }],
     avgTicket
   )
-  console.log('reactivation value (2 bare + 1 with $800 confirmed):', reactValue, '| expect 450+450+800=1700')
-  if (reactValue !== 1700) throw new Error('reactivation value mismatch')
+  console.log('reactivation value (2 bare + 1 override w/ $800 confirmed):', reactValue,
+    '| expect 450+450+0=900 (no double-count)')
+  if (reactValue !== 900) throw new Error('reactivation value mismatch')
   if (computeReactivationValue([], [], avgTicket) !== 0) throw new Error('empty reactivation mismatch')
 }
 

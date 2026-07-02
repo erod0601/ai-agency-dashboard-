@@ -201,11 +201,18 @@ export function computeAnswerRateStreak(
 }
 
 // ── Reactivation value ────────────────────────────────────────────────────────
-// Dollar story for dormant-then-returned leads. A contact only derives as
-// `reactivated` while it has NO on-the-books appointment (the booked/won rules
-// win otherwise), so estimateContactRevenue is 0 by construction for most of
-// them — each such lead is valued at the avg ticket instead: it's back in
-// play, and that's what a re-engaged lead is worth until it books.
+// Forward-looking pipeline estimate ONLY — never overlaps the revenue tiles.
+//
+// A contact only derives as `reactivated` while it has NO counted appointment
+// (the won/booked rules win otherwise), so each one is valued at the avg
+// ticket: back in play, worth one typical job until it books. The moment it
+// books, rule 2 flips it to `booked` — it leaves this card and its real
+// dollars start counting in This Month / Since Onboarding instead.
+//
+// The one path to a reactivated contact WITH real appointment revenue is the
+// metadata.lead_status_override escape hatch. Those dollars are already in
+// the revenue tiles, so such a contact contributes $0 here — counting its
+// appointments (or stacking avgTicket on top) would double-count.
 
 export function computeReactivationValue(
   reactivatedContactIds: string[],
@@ -215,8 +222,7 @@ export function computeReactivationValue(
   let total = 0
   for (const id of reactivatedContactIds) {
     const rev = estimateContactRevenue({ id }, appointments, avgTicket)
-    const actual = rev.realized + rev.pipeline
-    total += actual > 0 ? actual : avgTicket
+    if (rev.realized + rev.pipeline === 0) total += avgTicket
   }
   return total
 }
