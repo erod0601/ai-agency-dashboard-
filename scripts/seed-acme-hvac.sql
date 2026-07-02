@@ -84,12 +84,30 @@ begin
       outc := case when random() < 0.6 then 'follow_up_needed' else 'booked' end;
       senti := case when random() < 0.5 then 'positive' else 'neutral' end;
     elsif i <= 282 then -- lost: mostly answered-but-cold (AI answers ~95% of calls)
-      call_ts := now() - (15 + random() * 70) * interval '1 day';
       outc := case when i % 10 = 0 then 'voicemail' when i % 10 = 5 then 'hung_up' else 'info_only' end;
+      -- Streak realism: unanswered calls aren't spread evenly. The voicemails
+      -- cluster ~2-3 months back (a real bad stretch → that month's answer
+      -- rate dips to the low/mid 80s); hung-ups spread thinly across the
+      -- recent months, which have enough volume to stay above 90%. The
+      -- current month stays clean, so the streak reads "recovered from a
+      -- dip, currently on a run" — not flat 100% forever.
+      if i % 10 = 0 then       -- 9 voicemails → the dip month (63-84d ago)
+        call_ts := now() - (63 + ((i / 10) % 8) * 3) * interval '1 day';
+      elsif i % 10 = 5 then    -- 9 hung-ups → 3 mid-window, 6 recent
+        call_ts := case when i % 30 = 15
+          then now() - (36 + ((i / 30) % 3) * 6) * interval '1 day'
+          else now() - (6 + ((i / 10) % 11) * 2) * interval '1 day' end;
+      else
+        call_ts := now() - (15 + random() * 70) * interval '1 day';
+      end if;
       senti := case when outc = 'hung_up' and random() < 0.5 then 'negative' else 'neutral' end;
     elsif i <= 297 then -- new (recent, unresolved)
-      call_ts := now() - (random() * 12) * interval '1 day';
       outc := case when i % 5 = 0 then 'voicemail' else 'info_only' end;
+      -- keep the sparse current month clean: recent voicemails land 4-11d
+      -- back where monthly volume can absorb them
+      call_ts := case when i % 5 = 0
+        then now() - (4 + (i % 7)) * interval '1 day'
+        else now() - (random() * 12) * interval '1 day' end;
       senti := 'neutral';
     else -- reactivated: dormant gap then recent engaged call
       call_ts := now() - (45 + random() * 35) * interval '1 day';

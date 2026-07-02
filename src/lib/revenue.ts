@@ -200,6 +200,63 @@ export function computeAnswerRateStreak(
   return { monthsOfData, latestRate, streakMonths: streak }
 }
 
+// ── Reactivation value ────────────────────────────────────────────────────────
+// Dollar story for dormant-then-returned leads. A contact only derives as
+// `reactivated` while it has NO on-the-books appointment (the booked/won rules
+// win otherwise), so estimateContactRevenue is 0 by construction for most of
+// them — each such lead is valued at the avg ticket instead: it's back in
+// play, and that's what a re-engaged lead is worth until it books.
+
+export function computeReactivationValue(
+  reactivatedContactIds: string[],
+  appointments: RevenueAppointment[],
+  avgTicket: number
+): number {
+  let total = 0
+  for (const id of reactivatedContactIds) {
+    const rev = estimateContactRevenue({ id }, appointments, avgTicket)
+    const actual = rev.realized + rev.pipeline
+    total += actual > 0 ? actual : avgTicket
+  }
+  return total
+}
+
+// ── After-hours capture ───────────────────────────────────────────────────────
+// "Calls the AI caught when a human receptionist wouldn't have been there."
+// Counts only ANSWERED after-hours calls — a voicemail at 2am is a call that
+// still went cold, not a capture win.
+
+export interface AfterHoursStats {
+  /** after-hours calls that actually connected */
+  answeredAfterHours: number
+  /** all calls in the window, for the share calculation */
+  totalCalls: number
+  /** whole-number % of total volume that was answered after hours */
+  pctOfTotal: number
+}
+
+export function computeAfterHoursStats(
+  calls: Array<{ started_at: string; outcome: string | null; after_hours: boolean | null }>,
+  windowDays = 30,
+  now: Date = new Date()
+): AfterHoursStats {
+  const windowStart = now.getTime() - windowDays * DAY_MS
+  let answeredAfterHours = 0
+  let totalCalls = 0
+  for (const c of calls) {
+    const t = new Date(c.started_at).getTime()
+    if (!Number.isFinite(t) || t < windowStart) continue
+    totalCalls++
+    const answered = !(c.outcome != null && UNANSWERED_OUTCOMES.has(c.outcome))
+    if (answered && c.after_hours === true) answeredAfterHours++
+  }
+  return {
+    answeredAfterHours,
+    totalCalls,
+    pctOfTotal: totalCalls > 0 ? Math.round((answeredAfterHours / totalCalls) * 100) : 0,
+  }
+}
+
 /** "$1,234" — shared money formatting so panels agree on presentation. */
 export function formatMoney(amount: number): string {
   return amount.toLocaleString('en-US', {

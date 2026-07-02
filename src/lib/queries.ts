@@ -354,7 +354,12 @@ export const getCallsForContacts = cache(async (clientId: string, contactIds: st
 
 export interface FunnelInputs {
   contacts: Array<{ id: string; metadata: Record<string, unknown> | null }>
-  calls: Array<{ contact_id: string | null; started_at: string; outcome: string | null }>
+  calls: Array<{
+    contact_id: string | null
+    started_at: string
+    outcome: string | null
+    after_hours: boolean | null
+  }>
   appointments: Array<{
     contact_id: string | null
     status: string | null
@@ -373,7 +378,7 @@ export const getFunnelInputs = cache(async (clientId: string): Promise<FunnelInp
   const supabase = await createClient()
   const [contactsRes, callsRes, apptsRes, messagesRes] = await Promise.all([
     supabase.from('contacts').select('id, metadata').eq('client_id', clientId).limit(1000),
-    supabase.from('calls').select('contact_id, started_at, outcome').eq('client_id', clientId).limit(1000),
+    supabase.from('calls').select('contact_id, started_at, outcome, after_hours').eq('client_id', clientId).limit(1000),
     supabase
       .from('appointments')
       .select('contact_id, status, estimated_value, scheduled_at, created_at, call_id, conversation_id')

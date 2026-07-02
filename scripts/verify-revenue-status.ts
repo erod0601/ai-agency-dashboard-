@@ -16,6 +16,7 @@ import {
   formatRevenueLabel,
   type RevenueAppointment,
 } from '../src/lib/revenue'
+import { computeAfterHoursStats, computeReactivationValue } from '../src/lib/revenue'
 import { computeAvgSpeedToLead, formatSpeedToLead } from '../src/lib/speed-to-lead'
 import { computeBookedViaBreakdown } from '../src/lib/booked-via'
 
@@ -199,6 +200,31 @@ console.log('no calls at all:', JSON.stringify(noCalls))
   const viaEmpty = computeBookedViaBreakdown([], 30, NOW)
   if (viaEmpty.some(v => v.count !== 0 || v.pct !== 0)) throw new Error('empty booked-via mismatch')
   console.log('empty booked-via → all zeros ✓')
+
+  // After-hours capture: answered-only, windowed, % of total
+  const ah = computeAfterHoursStats([
+    { started_at: iso(5),  outcome: 'booked',    after_hours: true },   // counted
+    { started_at: iso(6),  outcome: 'info_only', after_hours: true },   // counted
+    { started_at: iso(7),  outcome: 'voicemail', after_hours: true },   // unanswered → not counted
+    { started_at: iso(8),  outcome: 'booked',    after_hours: false },  // business hours
+    { started_at: iso(50), outcome: 'booked',    after_hours: true },   // outside window
+  ], 30, NOW)
+  console.log('after-hours:', JSON.stringify(ah), '| expect 2/4 = 50%')
+  if (ah.answeredAfterHours !== 2 || ah.totalCalls !== 4 || ah.pctOfTotal !== 50)
+    throw new Error('after-hours mismatch')
+  const ahEmpty = computeAfterHoursStats([], 30, NOW)
+  if (ahEmpty.answeredAfterHours !== 0 || ahEmpty.pctOfTotal !== 0) throw new Error('empty after-hours mismatch')
+
+  // Reactivation value: avg-ticket fallback for appointment-less contacts,
+  // real appointment dollars when they exist
+  const reactValue = computeReactivationValue(
+    ['r1', 'r2', 'r3'],
+    [{ status: 'confirmed', estimated_value: 800, contact_id: 'r3' }],
+    avgTicket
+  )
+  console.log('reactivation value (2 bare + 1 with $800 confirmed):', reactValue, '| expect 450+450+800=1700')
+  if (reactValue !== 1700) throw new Error('reactivation value mismatch')
+  if (computeReactivationValue([], [], avgTicket) !== 0) throw new Error('empty reactivation mismatch')
 }
 
 // ── 3. Edge-case fixtures for rules the live data never exercises ────────────

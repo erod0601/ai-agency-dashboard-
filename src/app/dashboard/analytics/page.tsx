@@ -13,6 +13,8 @@ import {
   estimateClientRevenue30d,
   estimateCumulativeRevenue,
   computeAnswerRateStreak,
+  computeAfterHoursStats,
+  computeReactivationValue,
 } from '@/lib/revenue'
 import { deriveLeadStatus, type LeadStatus } from '@/lib/lead-status'
 import { computeAvgSpeedToLead } from '@/lib/speed-to-lead'
@@ -26,9 +28,15 @@ import { ServicesWidget } from '../_components/overview/services-widget'
 import { RevenueHeroBand } from '../_components/overview/revenue-hero-band'
 import { ConversionFunnel } from '../_components/overview/conversion-funnel'
 import { BookedViaChart } from '../_components/overview/booked-via-chart'
+import { AfterHoursCard, ReactivationCard } from '../_components/overview/proof-point-cards'
 
 // Group funnel inputs by contact and run the shared derivation over each one.
-function computeStatusDistribution(inputs: FunnelInputs): Record<LeadStatus, number> {
+// Also returns which contacts derived as reactivated — the reactivation
+// callout card values them individually.
+function computeStatusDistribution(inputs: FunnelInputs): {
+  distribution: Record<LeadStatus, number>
+  reactivatedIds: string[]
+} {
   const callsByContact = new Map<string, FunnelInputs['calls']>()
   for (const c of inputs.calls) {
     if (!c.contact_id) continue
@@ -47,6 +55,7 @@ function computeStatusDistribution(inputs: FunnelInputs): Record<LeadStatus, num
   const distribution: Record<LeadStatus, number> = {
     new: 0, engaged: 0, booked: 0, won: 0, lost: 0, reactivated: 0,
   }
+  const reactivatedIds: string[] = []
   for (const contact of inputs.contacts) {
     const status = deriveLeadStatus(
       callsByContact.get(contact.id) ?? [],
@@ -55,8 +64,9 @@ function computeStatusDistribution(inputs: FunnelInputs): Record<LeadStatus, num
       { hasTwoWaySms: inputs.twoWaySmsContactIds.has(contact.id) }
     )
     distribution[status]++
+    if (status === 'reactivated') reactivatedIds.push(contact.id)
   }
-  return distribution
+  return { distribution, reactivatedIds }
 }
 
 export default async function AnalyticsPage() {
@@ -139,7 +149,9 @@ export default async function AnalyticsPage() {
   const avgTicket = getAvgTicket(clientSettings)
   const usingDefaultTicket = clientSettings?.avg_ticket_value == null
   const revenue30d = estimateClientRevenue30d(funnelInputs.appointments, avgTicket)
-  const statusDistribution = computeStatusDistribution(funnelInputs)
+  const { distribution: statusDistribution, reactivatedIds } = computeStatusDistribution(funnelInputs)
+  const afterHoursStats = computeAfterHoursStats(funnelInputs.calls)
+  const reactivationValue = computeReactivationValue(reactivatedIds, funnelInputs.appointments, avgTicket)
 
   // Value-story baseline: locked at onboarding, else the client's start date.
   const baselineLocked = clientSettings?.baseline_locked_at != null
@@ -231,7 +243,13 @@ export default async function AnalyticsPage() {
         />
       </div>
 
-      {/* ── Row 3: Conversion funnel + Booked-via breakdown ─────────────────── */}
+      {/* ── Row 3: Standalone proof points — after-hours capture + reactivation */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <AfterHoursCard stats={afterHoursStats} />
+        <ReactivationCard count={statusDistribution.reactivated} value={reactivationValue} />
+      </div>
+
+      {/* ── Row 4: Conversion funnel + Booked-via breakdown ─────────────────── */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -252,7 +270,7 @@ export default async function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* ── Row 4: Call volume + Call outcomes ──────────────────────────────── */}
+      {/* ── Row 5: Call volume + Call outcomes ──────────────────────────────── */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>

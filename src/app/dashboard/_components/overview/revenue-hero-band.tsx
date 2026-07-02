@@ -25,7 +25,8 @@ interface RevenueHeroBandProps {
   usingDefaultTicket: boolean
 }
 
-const heroCardClass =
+// Shared with the proof-point cards so "hero prominence" stays one visual language.
+export const heroCardClass =
   'border-violet-200 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:border-violet-900/70 dark:from-violet-950/40 dark:via-background dark:to-sky-950/30'
 
 function TileLabel({ icon: Icon, children }: { icon: typeof DollarSign; children: React.ReactNode }) {
