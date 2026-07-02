@@ -1,4 +1,4 @@
-import { DollarSign, TrendingUp, CalendarRange, Flame } from 'lucide-react'
+import { DollarSign, TrendingUp, CalendarRange, Flame, Zap } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   formatMoney,
@@ -6,6 +6,7 @@ import {
   type RevenueEstimate,
   type AnswerRateStreak,
 } from '@/lib/revenue'
+import { formatSpeedToLead, type SpeedToLeadResult } from '@/lib/speed-to-lead'
 
 interface RevenueHeroBandProps {
   /** trailing-30d estimate (realized/pipeline split) */
@@ -17,6 +18,8 @@ interface RevenueHeroBandProps {
   /** whether the baseline came from the locked setting or the fallback */
   baselineLocked: boolean
   streak: AnswerRateStreak
+  /** trailing-30d missed-call → follow-up average; null = nothing qualifying */
+  speedToLead: SpeedToLeadResult | null
   avgTicket: number
   /** true when avg_ticket_value is unset and the placeholder default is in use */
   usingDefaultTicket: boolean
@@ -44,6 +47,7 @@ export function RevenueHeroBand({
   baselineDate,
   baselineLocked,
   streak,
+  speedToLead,
   avgTicket,
   usingDefaultTicket,
 }: RevenueHeroBandProps) {
@@ -58,7 +62,7 @@ export function RevenueHeroBand({
 
   return (
     <div className="space-y-2">
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         {/* Tile 1 — This Month */}
         <Card className={heroCardClass}>
           <CardContent>
@@ -133,6 +137,36 @@ export function RevenueHeroBand({
                   ) : (
                     <>working back toward {thresholdPct}%</>
                   )}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Tile 4 — Speed to Lead */}
+        <Card className={heroCardClass}>
+          <CardContent>
+            <TileLabel icon={Zap}>Speed to Lead</TileLabel>
+            {speedToLead === null ? (
+              <>
+                <p className="mt-2 text-3xl font-bold tracking-tight">—</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  no missed-call recoveries in the last 30 days
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {formatSpeedToLead(speedToLead.avgSeconds)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  avg. missed call → AI follow-up ({speedToLead.sampleSize} recover
+                  {speedToLead.sampleSize === 1 ? 'y' : 'ies'}
+                  {speedToLead.excludedNoFollowUp > 0 &&
+                    `, ${speedToLead.excludedNoFollowUp} pending`})
+                </p>
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  human callbacks typically take hours — if they happen at all
                 </p>
               </>
             )}

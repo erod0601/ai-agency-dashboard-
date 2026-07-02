@@ -15,6 +15,12 @@
 -- ~25% of calls are flagged after_hours (the vertical's core pitch).
 -- Unanswered outcomes (voicemail/hung_up) stay under ~7% so the answer-rate
 -- consistency streak (hero band tile 3) has a >90% rate to celebrate.
+--
+-- Speed-to-lead: most voicemail/hung_up calls get an instant AI text-back
+-- 30-120 seconds later (the missed-call recovery pitch made visible).
+-- Booked-via: won/booked appointments split ~65% call / ~15% SMS / ~20%
+-- manual so the "how appointments get booked" breakdown has all three
+-- segments (call_id → call, conversation_id → sms, neither → manual).
 -- HVAC service types carry realistic estimated_value on ~2/3 of appointments;
 -- the rest fall back to avg_ticket_value at read time.
 --
@@ -47,6 +53,8 @@ declare
   appt_status text;
   appt_sched timestamptz;
   appt_value numeric;
+  appt_call_ref uuid;
+  appt_conv_ref uuid;
 begin
   -- wipe prior Acme activity (keeps the client + settings rows)
   delete from messages     where client_id = cid;
@@ -151,13 +159,44 @@ begin
       appt_value := case when random() < 0.67
         then svc_lo[svc_idx] + round(random() * (svc_hi[svc_idx] - svc_lo[svc_idx]))
         else null end;
-      insert into appointments (id, client_id, contact_id, call_id, scheduled_at, duration_minutes,
-                                service_type, status, estimated_value, notes, created_at)
-      values (gen_random_uuid(), cid, contact_id, call_id, appt_sched,
+
+      -- booked-via mix for won/booked cohorts: call / sms / manual
+      if i <= 117 and i % 20 >= 16 then       -- manual entry (neither ref)
+        appt_call_ref := null; appt_conv_ref := null;
+      elsif i <= 117 and i % 20 >= 13 then    -- booked over SMS
+        appt_call_ref := null; appt_conv_ref := gen_random_uuid();
+      else                                    -- booked on the call
+        appt_call_ref := call_id; appt_conv_ref := null;
+      end if;
+
+      insert into appointments (id, client_id, contact_id, call_id, conversation_id, scheduled_at,
+                                duration_minutes, service_type, status, estimated_value, notes, created_at)
+      values (gen_random_uuid(), cid, contact_id, appt_call_ref, appt_conv_ref, appt_sched,
               case when svc = 'install' then 240 else 60 + (random() * 60)::int end,
               svc, appt_status::appointment_status, appt_value,
               case when appt_status = 'completed' then 'Job completed by field crew.' else null end,
               call_ts + interval '2 minutes');
+
+      -- SMS-booked appointments get the booking thread for timeline coherence
+      if appt_conv_ref is not null then
+        insert into messages (id, client_id, contact_id, conversation_id, direction, body, sent_at, created_at) values
+          (gen_random_uuid(), cid, contact_id, appt_conv_ref, 'inbound',
+           'Can you get someone out for ' || replace(svc, '_', ' ') || '? Whatever day works.',
+           call_ts + interval '30 minutes', call_ts + interval '30 minutes'),
+          (gen_random_uuid(), cid, contact_id, appt_conv_ref, 'outbound',
+           'You are on the schedule for ' || replace(svc, '_', ' ') || ' — confirmation and arrival window to follow. Reply here to reschedule.',
+           call_ts + interval '32 minutes', call_ts + interval '32 minutes');
+      end if;
+    end if;
+
+    -- ── instant AI text-back after missed calls (speed-to-lead) ────────────
+    -- ~85% of voicemail/hung_up callers get an outbound SMS 30-120s later.
+    if outc in ('voicemail','hung_up') and i % 7 <> 0 then
+      call2_ts := call_ts + (30 + random() * 90) * interval '1 second';
+      insert into messages (id, client_id, contact_id, conversation_id, direction, body, sent_at, created_at)
+      values (gen_random_uuid(), cid, contact_id, gen_random_uuid(), 'outbound',
+              'Sorry we missed your call — this is the Acme HVAC assistant. How can we help? Reply here or call back anytime.',
+              call2_ts, call2_ts);
     end if;
 
     -- ── two-way SMS threads for a slice of engaged contacts ───────────────

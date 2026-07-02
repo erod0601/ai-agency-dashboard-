@@ -361,6 +361,9 @@ export interface FunnelInputs {
     estimated_value: number | null
     scheduled_at: string | null
     created_at: string | null
+    // booking provenance: call_id → AI call, conversation_id → AI SMS thread
+    call_id: string | null
+    conversation_id: string | null
   }>
   /** contact_ids with at least one inbound AND one outbound SMS */
   twoWaySmsContactIds: Set<string>
@@ -373,7 +376,7 @@ export const getFunnelInputs = cache(async (clientId: string): Promise<FunnelInp
     supabase.from('calls').select('contact_id, started_at, outcome').eq('client_id', clientId).limit(1000),
     supabase
       .from('appointments')
-      .select('contact_id, status, estimated_value, scheduled_at, created_at')
+      .select('contact_id, status, estimated_value, scheduled_at, created_at, call_id, conversation_id')
       .eq('client_id', clientId)
       .limit(1000),
     supabase.from('messages').select('contact_id, direction').eq('client_id', clientId).limit(1000),
@@ -398,6 +401,52 @@ export const getFunnelInputs = cache(async (clientId: string): Promise<FunnelInp
     calls: (callsRes.data ?? []) as FunnelInputs['calls'],
     appointments: (apptsRes.data ?? []) as FunnelInputs['appointments'],
     twoWaySmsContactIds,
+  }
+})
+
+// ── Speed to lead ─────────────────────────────────────────────────────────────
+// Raw inputs for computeAvgSpeedToLead (src/lib/speed-to-lead): missed inbound
+// calls in the trailing window plus every outbound touch (call or SMS) that
+// could count as the follow-up.
+
+export const getSpeedToLeadInputs = cache(async (clientId: string, windowDays = 30) => {
+  const supabase = await createClient()
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString()
+  const [missedRes, outCallsRes, outMsgsRes] = await Promise.all([
+    supabase
+      .from('calls')
+      .select('contact_id, started_at')
+      .eq('client_id', clientId)
+      .eq('direction', 'inbound')
+      .in('outcome', ['voicemail', 'hung_up'])
+      .gte('started_at', since)
+      .limit(1000),
+    supabase
+      .from('calls')
+      .select('contact_id, started_at')
+      .eq('client_id', clientId)
+      .eq('direction', 'outbound')
+      .gte('started_at', since)
+      .limit(1000),
+    supabase
+      .from('messages')
+      .select('contact_id, sent_at')
+      .eq('client_id', clientId)
+      .eq('direction', 'outbound')
+      .gte('sent_at', since)
+      .limit(1000),
+  ])
+  for (const [name, res] of [
+    ['missed', missedRes], ['outboundCalls', outCallsRes], ['outboundMessages', outMsgsRes],
+  ] as const) {
+    if (res.error) console.error('[getSpeedToLeadInputs:%s] client_id=%s error=%s', name, clientId, res.error.message)
+  }
+  return {
+    missedCalls: (missedRes.data ?? []) as Array<{ contact_id: string | null; started_at: string }>,
+    outboundEvents: [
+      ...(outCallsRes.data ?? []).map(c => ({ contact_id: c.contact_id as string | null, ts: c.started_at as string })),
+      ...(outMsgsRes.data ?? []).map(m => ({ contact_id: m.contact_id as string | null, ts: m.sent_at as string })),
+    ],
   }
 })
 

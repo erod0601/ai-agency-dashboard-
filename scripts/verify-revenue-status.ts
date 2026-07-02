@@ -16,6 +16,8 @@ import {
   formatRevenueLabel,
   type RevenueAppointment,
 } from '../src/lib/revenue'
+import { computeAvgSpeedToLead, formatSpeedToLead } from '../src/lib/speed-to-lead'
+import { computeBookedViaBreakdown } from '../src/lib/booked-via'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = new Date('2026-07-02T03:11:45Z') // matches DB now() at extraction time
@@ -155,6 +157,49 @@ if (freshStreak.monthsOfData !== 1 || freshStreak.latestRate !== 1) throw new Er
 const noCalls = computeAnswerRateStreak([], 0.9, NOW)
 if (noCalls.streakMonths !== 0 || noCalls.latestRate !== null) throw new Error('empty streak mismatch')
 console.log('no calls at all:', JSON.stringify(noCalls))
+
+// ── 2c. Speed-to-lead + booked-via (analytics additions) ─────────────────────
+{
+  const stl = computeAvgSpeedToLead({
+    missedCalls: [
+      { contact_id: 'a', started_at: iso(5) },                     // followed up in 60s
+      { contact_id: 'b', started_at: iso(10) },                    // no follow-up → excluded
+      { contact_id: 'c', started_at: iso(45) },                    // outside 30d window
+    ],
+    outboundEvents: [
+      { contact_id: 'a', ts: new Date(NOW.getTime() - 5 * DAY + 60_000).toISOString() },
+      { contact_id: 'a', ts: iso(1) },                             // later touch ignored
+      { contact_id: 'c', ts: iso(44) },
+    ],
+  }, 30, NOW)
+  console.log('\nspeed-to-lead:', JSON.stringify(stl), '| expect avg=60 sample=1 excluded=1')
+  if (!stl || stl.avgSeconds !== 60 || stl.sampleSize !== 1 || stl.excludedNoFollowUp !== 1)
+    throw new Error('speed-to-lead mismatch')
+
+  const noStl = computeAvgSpeedToLead({ missedCalls: [], outboundEvents: [] }, 30, NOW)
+  if (noStl !== null) throw new Error('speed-to-lead should be null with no data')
+  console.log('no qualifying misses → null ✓ | formats:',
+    formatSpeedToLead(47), '/', formatSpeedToLead(720), '/', formatSpeedToLead(14400))
+
+  const via = computeBookedViaBreakdown([
+    { status: 'completed', call_id: 'k1', conversation_id: null, created_at: iso(3) },
+    { status: 'confirmed', call_id: 'k2', conversation_id: null, created_at: iso(4) },
+    { status: 'booked',    call_id: null, conversation_id: 'v1', created_at: iso(5) },
+    { status: 'confirmed', call_id: null, conversation_id: null, created_at: iso(6) },
+    { status: 'cancelled', call_id: 'k3', conversation_id: null, created_at: iso(2) },  // not counted
+    { status: 'completed', call_id: 'k4', conversation_id: null, created_at: iso(50) }, // outside window
+  ], 30, NOW)
+  const pctSum = via.reduce((s, v) => s + v.pct, 0)
+  console.log('booked-via:', JSON.stringify(via.map(v => `${v.key}:${v.count}/${v.pct}%`)),
+    '| pct sum =', pctSum)
+  if (via.find(v => v.key === 'call')?.count !== 2 || via.find(v => v.key === 'sms')?.count !== 1 ||
+      via.find(v => v.key === 'manual')?.count !== 1 || pctSum !== 100)
+    throw new Error('booked-via mismatch')
+
+  const viaEmpty = computeBookedViaBreakdown([], 30, NOW)
+  if (viaEmpty.some(v => v.count !== 0 || v.pct !== 0)) throw new Error('empty booked-via mismatch')
+  console.log('empty booked-via → all zeros ✓')
+}
 
 // ── 3. Edge-case fixtures for rules the live data never exercises ────────────
 console.log('\n── Edge-case fixtures ──')

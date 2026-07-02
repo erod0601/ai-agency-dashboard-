@@ -4,7 +4,7 @@ import {
   getCurrentUser, getProfile,
   getDailyCallMetrics, getBookingConversion30d,
   getRecentCalls, getCallOutcomes30d, getAppointments30d, getTopServicesOrIntents,
-  getClientSettingsFull, getFunnelInputs, type FunnelInputs,
+  getClientSettingsFull, getFunnelInputs, getSpeedToLeadInputs, type FunnelInputs,
 } from '@/lib/queries'
 import { resolveActiveClient } from '@/lib/active-client'
 import { getIndustryConfig } from '@/lib/industry-config'
@@ -15,6 +15,8 @@ import {
   computeAnswerRateStreak,
 } from '@/lib/revenue'
 import { deriveLeadStatus, type LeadStatus } from '@/lib/lead-status'
+import { computeAvgSpeedToLead } from '@/lib/speed-to-lead'
+import { computeBookedViaBreakdown } from '@/lib/booked-via'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MetricCard } from '../_components/overview/metric-card'
 import { CallVolumeChart } from '../_components/overview/call-volume-chart'
@@ -23,6 +25,7 @@ import { RecentCallsTable } from '../_components/overview/recent-calls-table'
 import { ServicesWidget } from '../_components/overview/services-widget'
 import { RevenueHeroBand } from '../_components/overview/revenue-hero-band'
 import { ConversionFunnel } from '../_components/overview/conversion-funnel'
+import { BookedViaChart } from '../_components/overview/booked-via-chart'
 
 // Group funnel inputs by contact and run the shared derivation over each one.
 function computeStatusDistribution(inputs: FunnelInputs): Record<LeadStatus, number> {
@@ -96,6 +99,7 @@ export default async function AnalyticsPage() {
     getAppointments30d(clientId),
     getTopServicesOrIntents(clientId),
     getFunnelInputs(clientId),
+    getSpeedToLeadInputs(clientId),
   ])
 
   settled.forEach((r, i) => {
@@ -116,6 +120,7 @@ export default async function AnalyticsPage() {
     appointments30d,
     topServices,
     funnelInputs,
+    speedToLeadInputs,
   ] = [
     settled[0].status === 'fulfilled' ? settled[0].value : [],
     settled[1].status === 'fulfilled' ? settled[1].value : null,
@@ -125,6 +130,9 @@ export default async function AnalyticsPage() {
     settled[5].status === 'fulfilled' ? settled[5].value : 0,
     settled[6].status === 'fulfilled' ? settled[6].value : [],
     settled[7].status === 'fulfilled' ? settled[7].value : emptyFunnel,
+    settled[8].status === 'fulfilled'
+      ? settled[8].value
+      : { missedCalls: [], outboundEvents: [] },
   ] as const
 
   // ── Derived revenue + funnel (src/lib/revenue, src/lib/lead-status) ────────
@@ -140,6 +148,8 @@ export default async function AnalyticsPage() {
   )
   const cumulative = estimateCumulativeRevenue(funnelInputs.appointments, avgTicket, baselineDate)
   const streak = computeAnswerRateStreak(funnelInputs.calls)
+  const speedToLead = computeAvgSpeedToLead(speedToLeadInputs)
+  const bookedViaBreakdown = computeBookedViaBreakdown(funnelInputs.appointments)
 
   // ── Derive 30d vs prior-30d metrics from the 61-day daily_call_metrics ────
   const thirtyDaysAgoStr = (() => {
@@ -191,6 +201,7 @@ export default async function AnalyticsPage() {
         baselineDate={baselineDate}
         baselineLocked={baselineLocked}
         streak={streak}
+        speedToLead={speedToLead}
         avgTicket={avgTicket}
         usingDefaultTicket={usingDefaultTicket}
       />
@@ -220,7 +231,7 @@ export default async function AnalyticsPage() {
         />
       </div>
 
-      {/* ── Row 3: Conversion funnel + Call outcomes ────────────────────────── */}
+      {/* ── Row 3: Conversion funnel + Booked-via breakdown ─────────────────── */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -233,6 +244,27 @@ export default async function AnalyticsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>How appointments get booked</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BookedViaChart data={bookedViaBreakdown} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Row 4: Call volume + Call outcomes ──────────────────────────────── */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Call volume — last 30 days</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CallVolumeChart data={chartData} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Call outcomes — last 30 days</CardTitle>
           </CardHeader>
           <CardContent>
@@ -240,16 +272,6 @@ export default async function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* ── Row 4: Call volume ──────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Call volume — last 30 days</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CallVolumeChart data={chartData} />
-        </CardContent>
-      </Card>
 
       {/* ── Row 3: Recent calls ─────────────────────────────────────────────── */}
       <Card className="py-0">
