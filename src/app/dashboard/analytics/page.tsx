@@ -1,18 +1,55 @@
 import { redirect } from 'next/navigation'
-import { Phone, TrendingUp, DollarSign, CalendarDays } from 'lucide-react'
+import { Phone, TrendingUp, CalendarDays } from 'lucide-react'
 import {
   getCurrentUser, getProfile,
-  getDailyCallMetrics, getBookingConversion30d, getEstimatedRevenue30d,
+  getDailyCallMetrics, getBookingConversion30d,
   getRecentCalls, getCallOutcomes30d, getAppointments30d, getTopServicesOrIntents,
+  getClientSettingsFull, getFunnelInputs, type FunnelInputs,
 } from '@/lib/queries'
 import { resolveActiveClient } from '@/lib/active-client'
 import { getIndustryConfig } from '@/lib/industry-config'
+import { getAvgTicket, estimateClientRevenue30d } from '@/lib/revenue'
+import { deriveLeadStatus, type LeadStatus } from '@/lib/lead-status'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MetricCard } from '../_components/overview/metric-card'
 import { CallVolumeChart } from '../_components/overview/call-volume-chart'
 import { OutcomesChart } from '../_components/overview/outcomes-chart'
 import { RecentCallsTable } from '../_components/overview/recent-calls-table'
 import { ServicesWidget } from '../_components/overview/services-widget'
+import { RevenueHeroBand } from '../_components/overview/revenue-hero-band'
+import { ConversionFunnel } from '../_components/overview/conversion-funnel'
+
+// Group funnel inputs by contact and run the shared derivation over each one.
+function computeStatusDistribution(inputs: FunnelInputs): Record<LeadStatus, number> {
+  const callsByContact = new Map<string, FunnelInputs['calls']>()
+  for (const c of inputs.calls) {
+    if (!c.contact_id) continue
+    const arr = callsByContact.get(c.contact_id)
+    if (arr) arr.push(c)
+    else callsByContact.set(c.contact_id, [c])
+  }
+  const apptsByContact = new Map<string, FunnelInputs['appointments']>()
+  for (const a of inputs.appointments) {
+    if (!a.contact_id) continue
+    const arr = apptsByContact.get(a.contact_id)
+    if (arr) arr.push(a)
+    else apptsByContact.set(a.contact_id, [a])
+  }
+
+  const distribution: Record<LeadStatus, number> = {
+    new: 0, engaged: 0, booked: 0, won: 0, lost: 0, reactivated: 0,
+  }
+  for (const contact of inputs.contacts) {
+    const status = deriveLeadStatus(
+      callsByContact.get(contact.id) ?? [],
+      apptsByContact.get(contact.id) ?? [],
+      contact.metadata,
+      { hasTwoWaySms: inputs.twoWaySmsContactIds.has(contact.id) }
+    )
+    distribution[status]++
+  }
+  return distribution
+}
 
 export default async function AnalyticsPage() {
   const user = await getCurrentUser()
@@ -48,11 +85,12 @@ export default async function AnalyticsPage() {
   const settled = await Promise.allSettled([
     getDailyCallMetrics(clientId),
     getBookingConversion30d(clientId),
-    getEstimatedRevenue30d(clientId),
+    getClientSettingsFull(clientId),
     getRecentCalls(clientId, 10),
     getCallOutcomes30d(clientId),
     getAppointments30d(clientId),
     getTopServicesOrIntents(clientId),
+    getFunnelInputs(clientId),
   ])
 
   settled.forEach((r, i) => {
@@ -61,14 +99,18 @@ export default async function AnalyticsPage() {
     }
   })
 
+  const emptyFunnel: FunnelInputs = {
+    contacts: [], calls: [], appointments: [], twoWaySmsContactIds: new Set(),
+  }
   const [
     dailyMetrics,
     bookingConversion,
-    estimatedRevenue,
+    clientSettings,
     recentCalls,
     callOutcomes,
     appointments30d,
     topServices,
+    funnelInputs,
   ] = [
     settled[0].status === 'fulfilled' ? settled[0].value : [],
     settled[1].status === 'fulfilled' ? settled[1].value : null,
@@ -77,7 +119,14 @@ export default async function AnalyticsPage() {
     settled[4].status === 'fulfilled' ? settled[4].value : [],
     settled[5].status === 'fulfilled' ? settled[5].value : 0,
     settled[6].status === 'fulfilled' ? settled[6].value : [],
+    settled[7].status === 'fulfilled' ? settled[7].value : emptyFunnel,
   ] as const
+
+  // ── Derived revenue + funnel (src/lib/revenue, src/lib/lead-status) ────────
+  const avgTicket = getAvgTicket(clientSettings)
+  const usingDefaultTicket = clientSettings?.avg_ticket_value == null
+  const revenue30d = estimateClientRevenue30d(funnelInputs.appointments, avgTicket)
+  const statusDistribution = computeStatusDistribution(funnelInputs)
 
   // ── Derive 30d vs prior-30d metrics from the 61-day daily_call_metrics ────
   const thirtyDaysAgoStr = (() => {
@@ -101,8 +150,6 @@ export default async function AnalyticsPage() {
   const rawRate = bookingConversion?.conversion_rate_pct ?? null
   const bookingRate = rawRate !== null ? Math.round(rawRate) : null
 
-  const estimatedRev = estimatedRevenue?.estimated_revenue_30d ?? null
-
   // Chart data: last 30 days only (view column is "day", not "date")
   const chartData = current30d.map(d => ({
     date: new Date(d.day).toLocaleDateString('en-US', {
@@ -112,13 +159,6 @@ export default async function AnalyticsPage() {
     'Total Calls': d.total_calls ?? 0,
     'After Hours': d.after_hours_calls ?? 0,
   }))
-
-  const usd = (n: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 0,
-    }).format(n)
 
   return (
     <div className="space-y-6">
@@ -131,8 +171,15 @@ export default async function AnalyticsPage() {
         </p>
       )}
 
-      {/* ── Row 1: Metric tiles ─────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── Row 1: Revenue hero band ────────────────────────────────────────── */}
+      <RevenueHeroBand
+        revenue={revenue30d}
+        avgTicket={avgTicket}
+        usingDefaultTicket={usingDefaultTicket}
+      />
+
+      {/* ── Row 2: Metric tiles ─────────────────────────────────────────────── */}
+      <div className="grid gap-4 sm:grid-cols-3">
         <MetricCard
           label={config.metricLabels.totalCalls}
           value={totalCalls30d.toLocaleString()}
@@ -147,12 +194,6 @@ export default async function AnalyticsPage() {
           icon={TrendingUp}
         />
         <MetricCard
-          label="Est. revenue (30d)"
-          value={estimatedRev !== null ? usd(estimatedRev) : '—'}
-          subtitle="projected from bookings"
-          icon={DollarSign}
-        />
-        <MetricCard
           label={config.metricLabels.bookings}
           value={appointments30d.toLocaleString()}
           subtitle={bookingConversion?.booked_30d != null && appointments30d === 0
@@ -162,14 +203,14 @@ export default async function AnalyticsPage() {
         />
       </div>
 
-      {/* ── Row 2: Call volume + Outcomes ───────────────────────────────────── */}
+      {/* ── Row 3: Conversion funnel + Call outcomes ────────────────────────── */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Call volume — last 30 days</CardTitle>
+            <CardTitle>Conversion funnel — all contacts</CardTitle>
           </CardHeader>
           <CardContent>
-            <CallVolumeChart data={chartData} />
+            <ConversionFunnel distribution={statusDistribution} />
           </CardContent>
         </Card>
 
@@ -182,6 +223,16 @@ export default async function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Row 4: Call volume ──────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Call volume — last 30 days</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CallVolumeChart data={chartData} />
+        </CardContent>
+      </Card>
 
       {/* ── Row 3: Recent calls ─────────────────────────────────────────────── */}
       <Card className="py-0">

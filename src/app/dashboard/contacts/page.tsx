@@ -35,6 +35,13 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { deriveLeadStatus, LEAD_STATUS_CONFIG } from "@/lib/lead-status";
+import {
+  getAvgTicket,
+  estimateContactRevenue,
+  formatRevenueLabel,
+  hasExactValue,
+} from "@/lib/revenue";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,13 +78,44 @@ interface ContactAppointment {
   service_type: string | null;
   status: string;
   notes: string | null;
+  estimated_value: number | null;
+  created_at: string | null;
+}
+
+interface ContactMessage {
+  id: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  created_at: string;
 }
 
 interface ContactDetail extends Contact {
   calls: ContactCall[];
   appointments: ContactAppointment[];
+  messages: ContactMessage[];
   // not yet a real column — populated only if the API adds it later
   tags?: string[] | null;
+}
+
+// One unified feed across calls, SMS, and appointments, newest first.
+type TimelineEvent =
+  | { kind: "call"; ts: string; call: ContactCall }
+  | { kind: "sms"; ts: string; message: ContactMessage }
+  | { kind: "appointment"; ts: string; appointment: ContactAppointment };
+
+function buildTimeline(detail: ContactDetail): TimelineEvent[] {
+  const events: TimelineEvent[] = [
+    ...detail.calls.map((call): TimelineEvent => ({ kind: "call", ts: call.started_at, call })),
+    ...detail.messages.map((message): TimelineEvent => ({ kind: "sms", ts: message.created_at, message })),
+    // An appointment enters the story when it was booked (created_at), not
+    // when it happens — the scheduled date is shown on the row instead.
+    ...detail.appointments.map((appointment): TimelineEvent => ({
+      kind: "appointment",
+      ts: appointment.created_at ?? appointment.scheduled_at,
+      appointment,
+    })),
+  ];
+  return events.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -222,14 +260,27 @@ function ContactRow({
 
 function ContactDetailPanel({
   contact,
+  avgTicket,
   onClose,
 }: {
   contact: ContactDetail | null;
+  avgTicket: number;
   onClose: () => void;
 }) {
   if (!contact) return null;
 
   const displayName = contact.full_name ?? formatPhone(contact.phone);
+
+  // Derived, never stored — always consistent with the activity below.
+  const hasTwoWaySms =
+    contact.messages.some((m) => m.direction === "inbound") &&
+    contact.messages.some((m) => m.direction === "outbound");
+  const leadStatus = deriveLeadStatus(contact.calls, contact.appointments, contact.metadata, {
+    hasTwoWaySms,
+  });
+  const statusConfig = LEAD_STATUS_CONFIG[leadStatus];
+  const revenue = estimateContactRevenue(contact, contact.appointments, avgTicket);
+  const timeline = buildTimeline(contact);
 
   return (
     <Sheet open={!!contact} onOpenChange={(open) => !open && onClose()}>
@@ -246,10 +297,30 @@ function ContactDetailPanel({
                   {contact.full_name ? contact.full_name[0].toUpperCase() : <User className="w-5 h-5" />}
                 </div>
                 <div>
-                  <SheetTitle className="text-base leading-tight">{displayName}</SheetTitle>
+                  <div className="flex items-center gap-2">
+                    <SheetTitle className="text-base leading-tight">{displayName}</SheetTitle>
+                    <Badge variant="outline" className={cn("text-[11px] border", statusConfig.className)}>
+                      {statusConfig.label}
+                    </Badge>
+                  </div>
                   <p className="text-sm text-muted-foreground mt-0.5">
                     {formatPhone(contact.phone)}
                   </p>
+                  {(revenue.realized > 0 || revenue.pipeline > 0) && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {revenue.realized > 0 && (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                          {formatRevenueLabel(revenue.realized)} realized
+                        </span>
+                      )}
+                      {revenue.realized > 0 && revenue.pipeline > 0 && " · "}
+                      {revenue.pipeline > 0 && (
+                        <span className="text-sky-600 dark:text-sky-400 font-medium">
+                          {formatRevenueLabel(revenue.pipeline)} pipeline
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
               </div>
               <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0 -mr-1">
@@ -295,92 +366,131 @@ function ContactDetailPanel({
             </div>
           )}
 
-          {/* Call History */}
+          {/* Unified timeline: calls + SMS + appointments, newest first */}
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
-              <Phone className="w-3.5 h-3.5" /> Call History
+              <Clock className="w-3.5 h-3.5" /> Timeline
             </h3>
-            {contact.calls.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">No calls yet</p>
+            {timeline.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No activity yet</p>
             ) : (
               <div className="space-y-2">
-                {contact.calls.map((call) => (
-                  <div
-                    key={call.id}
-                    className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={cn("text-[11px] border", outcomeColor(call.outcome))}
-                        >
-                          {call.outcome ?? "unknown"}
-                        </Badge>
-                        {call.intent && (
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {call.intent.replace(/_/g, " ")}
-                          </span>
-                        )}
+                {timeline.map((event) => {
+                  if (event.kind === "call") {
+                    const call = event.call;
+                    return (
+                      <div
+                        key={`call-${call.id}`}
+                        className="flex gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
+                      >
+                        <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                          <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className={cn("text-[11px] border", outcomeColor(call.outcome))}
+                              >
+                                {call.outcome ?? "unknown"}
+                              </Badge>
+                              {call.intent && (
+                                <span className="text-xs text-muted-foreground capitalize">
+                                  {call.intent.replace(/_/g, " ")}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {relativeTime(call.started_at)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>{formatDuration(call.duration_seconds)}</span>
+                            {call.summary && (
+                              <span className="truncate text-foreground/70">{call.summary}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {relativeTime(call.started_at)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span>{formatDuration(call.duration_seconds)}</span>
-                      {call.summary && (
-                        <span className="truncate text-foreground/70">{call.summary}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                    );
+                  }
 
-          {/* Appointment History */}
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5" /> Appointments
-            </h3>
-            {contact.appointments.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">No appointments yet</p>
-            ) : (
-              <div className="space-y-2">
-                {contact.appointments.map((appt) => (
-                  <div
-                    key={appt.id}
-                    className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={cn("text-[11px] border", apptStatusColor(appt.status))}
-                        >
-                          {appt.status}
-                        </Badge>
-                        {appt.service_type && (
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {appt.service_type.replace(/_/g, " ")}
+                  if (event.kind === "sms") {
+                    const msg = event.message;
+                    return (
+                      <div
+                        key={`sms-${msg.id}`}
+                        className="flex gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
+                      >
+                        <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {msg.direction === "inbound" ? "SMS received" : "SMS sent"}
+                            </span>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {relativeTime(msg.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-foreground/70 line-clamp-2">{msg.body}</p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const appt = event.appointment;
+                  // "Est." prefix unless a completed appointment carries a real value.
+                  const valueLabel = formatRevenueLabel(
+                    appt.estimated_value ?? avgTicket,
+                    hasExactValue(appt)
+                  );
+                  return (
+                    <div
+                      key={`appt-${appt.id}`}
+                      className="flex gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
+                    >
+                      <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                        <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              variant="outline"
+                              className={cn("text-[11px] border", apptStatusColor(appt.status))}
+                            >
+                              {appt.status}
+                            </Badge>
+                            {appt.service_type && (
+                              <span className="text-xs text-muted-foreground capitalize">
+                                {appt.service_type.replace(/_/g, " ")}
+                              </span>
+                            )}
+                            {(appt.status === "confirmed" || appt.status === "booked" || appt.status === "completed") && (
+                              <span className="text-xs font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                                {valueLabel}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {new Date(appt.scheduled_at).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
                           </span>
+                        </div>
+                        {appt.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{appt.notes}</p>
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {new Date(appt.scheduled_at).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </span>
                     </div>
-                    {appt.notes && (
-                      <p className="text-xs text-muted-foreground mt-1">{appt.notes}</p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -435,6 +545,20 @@ export default function ContactsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [avgTicketValue, setAvgTicketValue] = useState<number | null>(null);
+
+  // Client's average job value — feeds the Est. revenue figures in the detail
+  // panel. getAvgTicket falls back to the honest placeholder when unset.
+  useEffect(() => {
+    if (!clientId) return;
+    supabase
+      .from("client_settings")
+      .select("avg_ticket_value")
+      .eq("client_id", clientId)
+      .single()
+      .then(({ data }) => setAvgTicketValue(data?.avg_ticket_value ?? null));
+  }, [clientId, supabase]);
+  const avgTicket = getAvgTicket({ avg_ticket_value: avgTicketValue });
 
   // ── Fetch contacts ──────────────────────────────────────────────────────────
   const fetchContacts = useCallback(async () => {
@@ -491,7 +615,7 @@ export default function ContactsPage() {
       setSelectedId(id);
       setDetailLoading(true);
 
-      const [contactRes, callsRes, apptsRes] = await Promise.all([
+      const [contactRes, callsRes, apptsRes, messagesRes] = await Promise.all([
         supabase.from("contacts").select("*").eq("id", id).single(),
         supabase
           .from("calls")
@@ -501,10 +625,16 @@ export default function ContactsPage() {
           .limit(20),
         supabase
           .from("appointments")
-          .select("id, scheduled_at, service_type, status, notes")
+          .select("id, scheduled_at, service_type, status, notes, estimated_value, created_at")
           .eq("contact_id", id)
           .order("scheduled_at", { ascending: false })
           .limit(20),
+        supabase
+          .from("messages")
+          .select("id, direction, body, created_at")
+          .eq("contact_id", id)
+          .order("created_at", { ascending: false })
+          .limit(30),
       ]);
 
       if (contactRes.data) {
@@ -512,6 +642,7 @@ export default function ContactsPage() {
           ...(contactRes.data as Contact),
           calls: (callsRes.data ?? []) as ContactCall[],
           appointments: (apptsRes.data ?? []) as ContactAppointment[],
+          messages: (messagesRes.data ?? []) as ContactMessage[],
         });
       }
       setDetailLoading(false);
@@ -643,6 +774,7 @@ export default function ContactsPage() {
       ) : (
         <ContactDetailPanel
           contact={detail}
+          avgTicket={avgTicket}
           onClose={() => {
             setDetail(null);
             setSelectedId(null);

@@ -346,6 +346,61 @@ export const getCallsForContacts = cache(async (clientId: string, contactIds: st
   return (data as LeadCall[] | null) ?? []
 })
 
+// ── Revenue + funnel layer ────────────────────────────────────────────────────
+// Raw inputs for the code-derived revenue estimates (src/lib/revenue) and lead
+// statuses (src/lib/lead-status). No stored rollups — everything derives at
+// read time. Explicit limits match PostgREST's 1000-row cap; at real scale the
+// funnel becomes a SQL rollup, but demo data sits comfortably under it.
+
+export interface FunnelInputs {
+  contacts: Array<{ id: string; metadata: Record<string, unknown> | null }>
+  calls: Array<{ contact_id: string | null; started_at: string; outcome: string | null }>
+  appointments: Array<{
+    contact_id: string | null
+    status: string | null
+    estimated_value: number | null
+    scheduled_at: string | null
+    created_at: string | null
+  }>
+  /** contact_ids with at least one inbound AND one outbound SMS */
+  twoWaySmsContactIds: Set<string>
+}
+
+export const getFunnelInputs = cache(async (clientId: string): Promise<FunnelInputs> => {
+  const supabase = await createClient()
+  const [contactsRes, callsRes, apptsRes, messagesRes] = await Promise.all([
+    supabase.from('contacts').select('id, metadata').eq('client_id', clientId).limit(1000),
+    supabase.from('calls').select('contact_id, started_at, outcome').eq('client_id', clientId).limit(1000),
+    supabase
+      .from('appointments')
+      .select('contact_id, status, estimated_value, scheduled_at, created_at')
+      .eq('client_id', clientId)
+      .limit(1000),
+    supabase.from('messages').select('contact_id, direction').eq('client_id', clientId).limit(1000),
+  ])
+  for (const [name, res] of [
+    ['contacts', contactsRes], ['calls', callsRes], ['appointments', apptsRes], ['messages', messagesRes],
+  ] as const) {
+    if (res.error) console.error('[getFunnelInputs:%s] client_id=%s error=%s', name, clientId, res.error.message)
+  }
+
+  const inbound = new Set<string>()
+  const outbound = new Set<string>()
+  for (const m of messagesRes.data ?? []) {
+    if (!m.contact_id) continue
+    if (m.direction === 'inbound') inbound.add(m.contact_id)
+    else if (m.direction === 'outbound') outbound.add(m.contact_id)
+  }
+  const twoWaySmsContactIds = new Set([...inbound].filter(id => outbound.has(id)))
+
+  return {
+    contacts: (contactsRes.data ?? []) as FunnelInputs['contacts'],
+    calls: (callsRes.data ?? []) as FunnelInputs['calls'],
+    appointments: (apptsRes.data ?? []) as FunnelInputs['appointments'],
+    twoWaySmsContactIds,
+  }
+})
+
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 export const getMessageThreads = cache(async (clientId: string): Promise<MessageThread[]> => {

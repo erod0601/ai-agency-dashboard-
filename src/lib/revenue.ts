@@ -6,7 +6,7 @@
 // "Est." in the UI, UNLESS it comes from a completed appointment carrying a
 // real estimated_value (see hasExactValue).
 
-import type { Appointment, ClientSettings } from '@/types/database'
+import type { ClientSettings } from '@/types/database'
 
 // HVAC placeholder default. Always fall back so the dashboard shows honest
 // estimates before the owner provides their real number in Settings.
@@ -30,8 +30,13 @@ export interface RevenueEstimate {
 
 // Minimal shape so helpers accept both full Appointment rows and lighter
 // query results (e.g. a select of just status/estimated_value/scheduled_at).
-export type RevenueAppointment = Pick<Appointment, 'status' | 'estimated_value'> &
-  Partial<Pick<Appointment, 'scheduled_at' | 'created_at' | 'contact_id'>>
+export interface RevenueAppointment {
+  status: string | null
+  estimated_value: number | null
+  scheduled_at?: string | null
+  created_at?: string | null
+  contact_id?: string | null
+}
 
 /** The client's average ticket value, falling back to the placeholder default. */
 export function getAvgTicket(
