@@ -106,6 +106,55 @@ export function deriveLeadStatus(
   return 'new'
 }
 
+// ── Client-wide distribution ──────────────────────────────────────────────────
+// Groups raw funnel inputs by contact and runs the derivation over each one.
+// Shared by the Analytics funnel and the ROI report so they can never
+// disagree. Also returns which contacts derived as reactivated — the
+// reactivation callout values them individually.
+
+export interface StatusDistributionInputs {
+  contacts: Array<{ id: string; metadata: Record<string, unknown> | null }>
+  calls: Array<{ contact_id: string | null; started_at: string; outcome: string | null }>
+  appointments: Array<{ contact_id: string | null; status: string | null }>
+  twoWaySmsContactIds: Set<string>
+}
+
+export function computeStatusDistribution(inputs: StatusDistributionInputs): {
+  distribution: Record<LeadStatus, number>
+  reactivatedIds: string[]
+} {
+  const callsByContact = new Map<string, StatusDistributionInputs['calls']>()
+  for (const c of inputs.calls) {
+    if (!c.contact_id) continue
+    const arr = callsByContact.get(c.contact_id)
+    if (arr) arr.push(c)
+    else callsByContact.set(c.contact_id, [c])
+  }
+  const apptsByContact = new Map<string, StatusDistributionInputs['appointments']>()
+  for (const a of inputs.appointments) {
+    if (!a.contact_id) continue
+    const arr = apptsByContact.get(a.contact_id)
+    if (arr) arr.push(a)
+    else apptsByContact.set(a.contact_id, [a])
+  }
+
+  const distribution: Record<LeadStatus, number> = {
+    new: 0, engaged: 0, booked: 0, won: 0, lost: 0, reactivated: 0,
+  }
+  const reactivatedIds: string[] = []
+  for (const contact of inputs.contacts) {
+    const status = deriveLeadStatus(
+      callsByContact.get(contact.id) ?? [],
+      apptsByContact.get(contact.id) ?? [],
+      contact.metadata,
+      { hasTwoWaySms: inputs.twoWaySmsContactIds.has(contact.id) }
+    )
+    distribution[status]++
+    if (status === 'reactivated') reactivatedIds.push(contact.id)
+  }
+  return { distribution, reactivatedIds }
+}
+
 // Badge styling per status — same accent-palette pattern as the outcome and
 // sentiment badges in contacts/page.tsx and LeadsPanel.tsx (light + dark).
 export const LEAD_STATUS_CONFIG: Record<LeadStatus, { label: string; className: string }> = {

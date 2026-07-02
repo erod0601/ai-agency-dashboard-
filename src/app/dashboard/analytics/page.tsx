@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { Phone, TrendingUp, CalendarDays } from 'lucide-react'
+import { Phone, TrendingUp, CalendarDays, FileDown } from 'lucide-react'
 import {
   getCurrentUser, getProfile,
   getDailyCallMetrics, getBookingConversion30d,
@@ -16,7 +16,7 @@ import {
   computeAfterHoursStats,
   computeReactivationValue,
 } from '@/lib/revenue'
-import { deriveLeadStatus, type LeadStatus } from '@/lib/lead-status'
+import { computeStatusDistribution } from '@/lib/lead-status'
 import { computeAvgSpeedToLead } from '@/lib/speed-to-lead'
 import { computeBookedViaBreakdown } from '@/lib/booked-via'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,45 +29,6 @@ import { RevenueHeroBand } from '../_components/overview/revenue-hero-band'
 import { ConversionFunnel } from '../_components/overview/conversion-funnel'
 import { BookedViaChart } from '../_components/overview/booked-via-chart'
 import { AfterHoursCard, ReactivationCard } from '../_components/overview/proof-point-cards'
-
-// Group funnel inputs by contact and run the shared derivation over each one.
-// Also returns which contacts derived as reactivated — the reactivation
-// callout card values them individually.
-function computeStatusDistribution(inputs: FunnelInputs): {
-  distribution: Record<LeadStatus, number>
-  reactivatedIds: string[]
-} {
-  const callsByContact = new Map<string, FunnelInputs['calls']>()
-  for (const c of inputs.calls) {
-    if (!c.contact_id) continue
-    const arr = callsByContact.get(c.contact_id)
-    if (arr) arr.push(c)
-    else callsByContact.set(c.contact_id, [c])
-  }
-  const apptsByContact = new Map<string, FunnelInputs['appointments']>()
-  for (const a of inputs.appointments) {
-    if (!a.contact_id) continue
-    const arr = apptsByContact.get(a.contact_id)
-    if (arr) arr.push(a)
-    else apptsByContact.set(a.contact_id, [a])
-  }
-
-  const distribution: Record<LeadStatus, number> = {
-    new: 0, engaged: 0, booked: 0, won: 0, lost: 0, reactivated: 0,
-  }
-  const reactivatedIds: string[] = []
-  for (const contact of inputs.contacts) {
-    const status = deriveLeadStatus(
-      callsByContact.get(contact.id) ?? [],
-      apptsByContact.get(contact.id) ?? [],
-      contact.metadata,
-      { hasTwoWaySms: inputs.twoWaySmsContactIds.has(contact.id) }
-    )
-    distribution[status]++
-    if (status === 'reactivated') reactivatedIds.push(contact.id)
-  }
-  return { distribution, reactivatedIds }
-}
 
 export default async function AnalyticsPage() {
   const user = await getCurrentUser()
@@ -197,14 +158,25 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Agency context banner */}
-      {profile.role === 'agency' && clientName && (
-        <p className="text-xs text-muted-foreground">
-          Showing data for{' '}
-          <span className="font-medium text-foreground">{clientName}</span>
-          {' '}— use the client switcher in the header to change.
-        </p>
-      )}
+      {/* Page controls: agency context banner + ROI report download */}
+      <div className="flex items-center justify-between gap-3">
+        {profile.role === 'agency' && clientName ? (
+          <p className="text-xs text-muted-foreground">
+            Showing data for{' '}
+            <span className="font-medium text-foreground">{clientName}</span>
+            {' '}— use the client switcher in the header to change.
+          </p>
+        ) : (
+          <span />
+        )}
+        <a
+          href="/api/roi-report"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <FileDown className="size-4" />
+          Download ROI Report
+        </a>
+      </div>
 
       {/* ── Row 1: Value-story hero band (three tiles) ──────────────────────── */}
       <RevenueHeroBand
